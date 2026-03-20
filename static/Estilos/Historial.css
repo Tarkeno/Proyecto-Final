@@ -1,0 +1,80 @@
+body, html {
+  margin: 0;
+  padding: 0;
+}
+
+/* Encabezado */
+.Titulo {
+  text-align: center;
+  margin: 0 auto;
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+#titulo2, #titulo2 h2 {
+  background-color: rgb(91, 13, 13);
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* Panel lateral */
+.panel_lateral {
+  background-color: rgb(171, 15, 57);
+    margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.panel_lateral .list-group-item {
+  background-color: transparent;
+  border: none;
+  color: #fff;
+  margin-top: 0%;
+  padding-top: 40px;
+  border-top: 0px;
+}
+
+aside .list-group {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Sección principal */
+section {
+  flex-grow: 1;
+  padding: 20px;
+}
+
+/* Ajuste de tablas */
+.table {
+  text-align: center;
+  margin: 0; /* quitamos el margin-right raro */
+}
+
+/* Ventanita con scroll */
+.table-scroll {
+  max-height: 400px;      /* límite máximo */
+  overflow-y: auto;       /* scroll solo si se necesita */
+  border: 1px solid #dee2e6;
+}
+
+/* Scroll personalizado */
+.table-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background-color: #800020; /* vino/burdeos */
+  border-radius: 4px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background-color: #f1f1f1;
+}
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #800020 #f1f1f1;
+}

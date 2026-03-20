@@ -1,0 +1,85 @@
+body, html {
+  margin: 0;
+  padding: 0;
+}
+
+.Titulo {
+  text-align: center;
+  margin: 0 auto;
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+#titulo2, #titulo2 h2 {
+  background-color: rgb(91, 13, 13);
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.panel_lateral {
+  background-color: rgb(171, 15, 57);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.panel_lateral .list-group-item {
+  background-color: transparent;
+  border: none;
+  color: #fff;
+  margin-top: 0%;
+  padding-top: 30px;
+  border-top: 0px;
+}
+
+aside .list-group {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* --- Ajustes para centrar la sección de reportes --- */
+section {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  margin-left: 0; /* quitamos el desplazamiento lateral */
+  width: 100%;
+}
+
+.card {
+  border-radius: 10px;
+  max-width: 600px;
+  width: 100%;
+}
+
+.card-body {
+  padding: 30px;
+  text-align: center;
+}
+
+h2 {
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 20px;
+}
+
+.form-label {
+  font-weight: 600;
+  text-align: left;
+  display: block;
+}
+
+.form-control, .form-select {
+  border-radius: 6px;
+  text-align: center;
+}
+
+.btn {
+  padding: 8px 20px;
+  font-weight: 600;
+}

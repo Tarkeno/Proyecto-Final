@@ -1,0 +1,99 @@
+body, html {
+  margin: 0;
+  padding: 0;
+}
+
+.Titulo {
+  text-align: center;
+  margin: 0 auto;
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+#titulo2, #titulo2 h2 {
+  background-color: rgb(91, 13, 13);
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.panel_lateral {
+  background-color: rgb(171, 15, 57);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.panel_lateral .list-group-item {
+  background-color: transparent;
+  border: none;
+  color: #fff;
+  margin-top: 0%;
+  padding-top: 40px;
+  border-top: 0px;
+}
+
+aside .list-group {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-section {
+  padding: 30px;
+  max-width: 600px;
+  margin: auto;
+}
+
+.btn-excel {
+  background-color: #217346; /* Verde Excel oficial */
+  color: white;
+  font-weight: bold;
+}
+.btn-excel:hover {
+  background-color: #185c37; /* Más oscuro al pasar el mouse */
+  color: white;
+}
+
+.bg-vino {
+  background-color: #800020; /* tono vino/burdeos */
+  color: #fff;               /* texto blanco */
+}
+
+.btn-vino {
+  background-color: #800020;
+  color: #fff;
+}
+.btn-vino:hover {
+  background-color: #660018;
+  color: #fff;
+}
+
+/* Contenedor de tabla tipo “pantallita” con scroll desde 1 registro */
+.table-scroll {
+  max-height: 150px;             /* altura fija: siempre ventanita */
+  overflow-y: auto;          /* scroll vertical siempre disponible */
+  width: 100%;
+  border: 1px solid #dee2e6; /* borde elegante */
+}
+
+/* Scroll personalizado */
+.table-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background-color: #800020; /* vino/burdeos */
+  border-radius: 4px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background-color: #f1f1f1;
+}
+
+/* Compatibilidad con Firefox */
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #800020 #f1f1f1;
+}
