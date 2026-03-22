@@ -29,7 +29,10 @@
         <nav class="panel_lateral" style="width:250px;">
             <aside>
                 <div class="list-group">
-                    <a href="/historial" class="list-group-item list-group-item-action">
+                       <a href="/panel-inicio" class="list-group-item list-group-item-action">
+                     <i class="fa-solid fa-house me-2"></i> Inicio
+                    </a>
+                    <a href="/historial" class="list-group-item list-group-item-action active">
                         <i class="fa-solid fa-file-lines me-2"></i> Historial
                     </a>
                     <a href="/estudiantes" class="list-group-item list-group-item-action">
@@ -47,7 +50,7 @@
                     <a href="/agregar-personal" class="list-group-item list-group-item-action">
                         <i class="fa-solid fa-plus me-2"></i> Agregar Personal
                     </a>
-                    <a href="/verificacion" class="list-group-item list-group-item-action">
+                    <a href="/verificacion-usuarios" class="list-group-item list-group-item-action">
                         <i class="fa-solid fa-check me-2"></i> Verificación
                     </a>
                     <a href="#" class="list-group-item list-group-item-action" onclick="confirmarSalida(event)">
@@ -60,6 +63,11 @@
         <section class="flex-grow-1 p-4">
             <h3>Historial de Asistencias de Hoy</h3>
 
+                <div class="mb-3">
+                <button class="btn btn-danger mb-3" data-bs-toggle="modal" data-bs-target="#modalGenerarInasistencias">
+                <i class="fa-solid fa-user-xmark me-2"></i> Generar inasistencias del día
+                </button>
+                </div>
             <ul class="nav nav-tabs mt-3" id="historialTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="alumnos-tab" data-bs-toggle="tab" data-bs-target="#alumnos" type="button" role="tab">
@@ -111,8 +119,25 @@
                 </div>
             </div>
         </section>
-    </main>
 
+        <div class="modal fade" id="modalGenerarInasistencias" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">Validar administrador o master</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formGenerarInasistencias">
+          <input type="text" id="usuarioInasistencias" class="form-control mb-3" placeholder="Usuario" required>
+          <input type="password" id="passwordInasistencias" class="form-control mb-3" placeholder="Contraseña" required>
+          <button type="submit" class="btn btn-danger w-100">Validar y continuar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+    </main>
     <script>
         function confirmarSalida(e) {
             e.preventDefault();
@@ -160,7 +185,60 @@
                 alert("No se pudo cargar el historial.");
             });
     </script>
+    
 
+    <script>
+document.getElementById("formGenerarInasistencias").addEventListener("submit", function(e) {
+    e.preventDefault();
+
+    const usuario = document.getElementById("usuarioInasistencias").value.trim();
+    const contraseña = document.getElementById("passwordInasistencias").value.trim();
+
+    fetch("/api/validar-admin-master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usuario, contraseña })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById("modalGenerarInasistencias"));
+            modal.hide();
+
+            if (confirm("¿Seguro que deseas generar las inasistencias del día para todos los que no registraron asistencia?")) {
+                fetch("/api/generar-inasistencias", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                })
+                .then(res => res.json())
+                .then(resp => {
+                    if (resp.success) {
+                        alert(
+                            `${resp.message}\n` +
+                            `Alumnos: ${resp.alumnos_insertados}\n` +
+                            `Personal: ${resp.personal_insertado}`
+                        );
+                        location.reload();
+                    } else {
+                        alert("Error: " + resp.message);
+                    }
+                })
+                .catch(err => {
+                    console.error("Error al generar inasistencias:", err);
+                    alert("No se pudo conectar con el servidor.");
+                });
+            }
+        } else {
+            alert("Credenciales inválidas o sin permisos.");
+        }
+    })
+    .catch(err => {
+        console.error("Error al validar usuario:", err);
+        alert("No se pudo conectar con el servidor.");
+    });
+});
+</script>
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>

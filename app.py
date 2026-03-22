@@ -1,13 +1,21 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 from flask_cors import CORS 
 import psycopg2
 import pandas as pd
 import io
 import qrcode
+import requests
+import bcrypt
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
+#Telegram
+BOT_TOKEN = "8662204262:AAHxsA-KeSvid-xaJ3LPWE6Vw1W3Mt2mTJc"
+CHAT_ID_ADMIN = "8767812052"
+
+#CHAT_ID_TUTOR_PRUEBA = "1333201682"
 
 # Conexión a la base de datos
 def conectar_bd():
@@ -17,6 +25,102 @@ def conectar_bd():
         user="postgres",
         password="12345"
     )
+
+app.secret_key = "cecyteh_verificacion_2026"
+
+@app.route("/acceso-verificacion")
+def acceso_verificacion():
+    return render_template("acceso_verificacion.html")
+
+
+@app.route("/api/login-verificacion", methods=["POST"])
+def login_verificacion():
+    data = request.get_json() or {}
+    usuario = data.get("usuario")
+    contraseña = data.get("contraseña")
+
+    if not usuario or not contraseña:
+        return jsonify({"success": False, "message": "Faltan credenciales"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT rol, es_maestro, contraseña
+            FROM usuarios
+            WHERE usuario = %s
+        """, (usuario,))
+
+        resultado = cur.fetchone()
+
+        if not resultado:
+            return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
+
+        rol = resultado[0]
+        es_maestro = resultado[1]
+        hash_guardado = resultado[2]
+
+        if not verificar_contrasena(contraseña, hash_guardado):
+            return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
+
+        if rol == "admin" or es_maestro:
+            session["verificacion_autorizada"] = True
+            session["usuario_verificacion"] = usuario
+
+            return jsonify({
+                "success": True,
+                "message": "Acceso autorizado"
+            }), 200
+
+        return jsonify({
+            "success": False,
+            "message": "No tienes permisos para acceder a este módulo"
+        }), 403
+
+    except Exception as e:
+        print("Error en login_verificacion:", e)
+        return jsonify({"success": False, "message": "Error al validar acceso"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+
+def enviar_telegram(mensaje, chat_id):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": mensaje
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.status_code == 200
+    except Exception as e:
+        print("Error al enviar mensaje a Telegram:", e)
+        return False
+    
+def enviar_telegram_multiple(mensaje, chat_ids):
+    enviados = []
+
+    for chat_id in chat_ids:
+        if chat_id and str(chat_id).strip():
+            ok = enviar_telegram(mensaje, str(chat_id).strip())
+            enviados.append({
+                "chat_id": str(chat_id).strip(),
+                "enviado": ok
+            })
+
+    return enviados
+
+def encriptar_contrasena(contraseña):
+    return bcrypt.hashpw(contraseña.encode('utf-8'), 
+    bcrypt.gensalt()).decode('utf-8')
+def verificar_contrasena(contrasena_ingresada, hash_guardada):
+    return bcrypt.checkpw(contrasena_ingresada.encode('utf-8'), 
+    hash_guardada.encode('utf-8'))
 
 
 @app.route("/api/modificar-reporte")
@@ -190,10 +294,16 @@ def generar_reporte_general():
                 WHERE a.fecha >= %s AND a.fecha < %s::date + INTERVAL '1 day'
             """
             params = [inicio, fin]
+
             if matricula:
                 query += " AND a.matricula = %s"
                 params.append(matricula)
-            query += " GROUP BY a.matricula, e.nombre, e.apellido_paterno, e.apellido_materno, e.carrera, e.semestre, e.grupo ORDER BY e.nombre"
+
+            query += """
+                GROUP BY a.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
+                         e.carrera, e.semestre, e.grupo
+                ORDER BY e.nombre
+            """
 
         elif tipo in ["asistencias", "inasistencias", "justificaciones"]:
             estado = {
@@ -204,17 +314,20 @@ def generar_reporte_general():
 
             query = """
                 SELECT a.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
-                       e.carrera, e.semestre, e.grupo, a.fecha
+                       e.carrera, e.semestre, e.grupo, a.fecha, a.motivo_justificacion
                 FROM asistencias a
                 JOIN estudiantes e ON a.matricula = e.matricula
                 WHERE a.estado_asistencia = %s
                   AND a.fecha >= %s AND a.fecha < %s::date + INTERVAL '1 day'
             """
             params = [estado, inicio, fin]
+
             if matricula:
                 query += " AND a.matricula = %s"
                 params.append(matricula)
+
             query += " ORDER BY a.fecha"
+
         else:
             return jsonify({"error": "Tipo de reporte no soportado"}), 400
 
@@ -224,7 +337,6 @@ def generar_reporte_general():
         if not resultados:
             return jsonify({"message": "No se encontraron registros"}), 404
 
-        # Construcción de registros
         if tipo == "general":
             registros = [{
                 "matricula": r[0],
@@ -247,7 +359,8 @@ def generar_reporte_general():
                 "carrera": r[4],
                 "semestre": r[5],
                 "grupo": r[6],
-                "fecha": r[7].strftime("%Y-%m-%d")
+                "fecha": r[7].strftime("%Y-%m-%d"),
+                "motivo_justificacion": r[8]
             } for r in resultados]
 
         return jsonify(registros)
@@ -255,9 +368,11 @@ def generar_reporte_general():
     except Exception as e:
         print("Error al generar reporte:", e)
         return jsonify({"error": "Error al generar reporte"}), 500
+
     finally:
         cursor.close()
         conn.close()
+        
 @app.route("/agregar")
 def vista_agregar_estudiante():
     return render_template("agregar.html")
@@ -270,21 +385,33 @@ def agregar_estudiante():
     nombre = data.get("nombre")
     apellido_paterno = data.get("apellido_paterno")
     apellido_materno = data.get("apellido_materno")
-    carrera = data.get("carrera")   # texto
-    semestre = data.get("semestre") # número
-    grupo = data.get("grupo")       # texto
+    carrera = data.get("carrera")
+    semestre = data.get("semestre")
+    grupo = data.get("grupo")
+    chat_id_telegram = data.get("chat_id_telegram")
+
+    if chat_id_telegram == "":
+        chat_id_telegram = None
+
+    if chat_id_telegram is not None and not str(chat_id_telegram).isdigit():
+        return jsonify({"success": False, "message": "El Chat ID de Telegram debe contener solo números"}), 400
 
     if not all([matricula, nombre, apellido_paterno, apellido_materno, carrera, semestre, grupo]):
         return jsonify({"success": False, "message": "Faltan datos obligatorios"}), 400
-
     conn = conectar_bd()
     cur = conn.cursor()
 
     try:
         cur.execute("""
-            INSERT INTO estudiantes (matricula, nombre, apellido_paterno, apellido_materno, carrera, semestre, grupo)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (matricula, nombre, apellido_paterno, apellido_materno, carrera, semestre, grupo))
+            INSERT INTO estudiantes (
+                matricula, nombre, apellido_paterno, apellido_materno,
+                carrera, semestre, grupo, chat_id_telegram
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            matricula, nombre, apellido_paterno, apellido_materno,
+            carrera, semestre, grupo, chat_id_telegram
+        ))
 
         conn.commit()
         return jsonify({"success": True, "message": "Estudiante agregado correctamente"}), 201
@@ -298,37 +425,6 @@ def agregar_estudiante():
         cur.close()
         conn.close()
 
-@app.route('/api/eliminar_estudiante', methods=['POST'])
-def eliminar_estudiante():
-    data = request.get_json()
-    matricula = data.get("matricula")
-
-    if not matricula:
-        return jsonify({"success": False, "message": "Falta la matrícula"}), 400
-
-    conn = conectar_bd()
-    cur = conn.cursor()
-
-    try:
-        cur.execute("DELETE FROM estudiantes WHERE matricula = %s", (matricula,))
-        conn.commit()
-
-        filas_afectadas = cur.rowcount
-
-        if filas_afectadas > 0:
-            return jsonify({"success": True, "message": "Estudiante eliminado correctamente"}), 200
-        else:
-            return jsonify({"success": False, "message": "No se encontró estudiante con esa matrícula"}), 404
-
-    except Exception as e:
-        conn.rollback()
-        print("Error al eliminar estudiante:", e)
-        return jsonify({"success": False, "message": "Error al eliminar en la base de datos"}), 500
-
-    finally:
-        cur.close()
-        conn.close()
-
 @app.route('/api/actualizar_estudiante', methods=['PUT'])
 def actualizar_estudiante():
     data = request.get_json() or {}
@@ -337,22 +433,34 @@ def actualizar_estudiante():
     if not matricula:
         return jsonify({"success": False, "message": "Falta la matrícula"}), 400
 
+    chat_id_telegram = data.get("chat_id_telegram")
+    if chat_id_telegram == "":
+        chat_id_telegram = None
+    if chat_id_telegram is not None and not str(chat_id_telegram).isdigit():
+        return jsonify({"success": False, "message": "El Chat ID de Telegram debe contener solo números"}), 400
+
     conn = conectar_bd()
     cur = conn.cursor()
 
     try:
         cur.execute("""
             UPDATE estudiantes
-            SET nombre=%s, apellido_paterno=%s, apellido_materno=%s,
-                carrera=%s, semestre=%s, grupo=%s
+            SET nombre=%s,
+                apellido_paterno=%s,
+                apellido_materno=%s,
+                carrera=%s,
+                semestre=%s,
+                grupo=%s,
+                chat_id_telegram=%s
             WHERE matricula=%s
         """, (
             data.get("nombre"),
             data.get("apellido_paterno"),
             data.get("apellido_materno"),
-            data.get("carrera"),   # texto
-            data.get("semestre"),  # número
-            data.get("grupo"),     # texto
+            data.get("carrera"),
+            data.get("semestre"),
+            data.get("grupo"),
+            chat_id_telegram,
             matricula
         ))
 
@@ -387,16 +495,16 @@ def login():
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, nombre, apellido_paterno, apellido_materno, rol, es_maestro
+        SELECT id, nombre, apellido_paterno, apellido_materno, rol, es_maestro, contraseña
         FROM usuarios
-        WHERE usuario = %s AND contraseña = %s
-    """, (usuario, contraseña))
+        WHERE usuario = %s
+    """, (usuario,))
 
     resultado = cur.fetchone()
     cur.close()
     conn.close()
 
-    if resultado:
+    if resultado and verificar_contrasena(contraseña, resultado[6]):
         return jsonify({
             "success": True,
             "usuario": usuario,
@@ -408,7 +516,7 @@ def login():
 
 @app.route("/api/validar-master", methods=["POST"])
 def validar_master():
-    data = request.get_json()
+    data = request.get_json() or {}
     usuario = data.get("usuario")
     contraseña = data.get("contraseña")
 
@@ -417,19 +525,33 @@ def validar_master():
 
     conn = conectar_bd()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT rol, es_maestro
-        FROM usuarios
-        WHERE usuario = %s AND contraseña = %s
-    """, (usuario, contraseña))
-    resultado = cur.fetchone()
-    cur.close()
-    conn.close()
 
-    if resultado:
-        return jsonify({"success": True})
-    else:
-        return jsonify({"success": False, "message": "Credenciales incorrectas"})
+    try:
+        cur.execute("""
+            SELECT es_maestro, contraseña
+            FROM usuarios
+            WHERE usuario = %s
+        """, (usuario,))
+        resultado = cur.fetchone()
+
+        if not resultado:
+            return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
+
+        es_maestro = resultado[0]
+        hash_guardado = resultado[1]
+
+        if es_maestro and verificar_contrasena(contraseña, hash_guardado):
+            return jsonify({"success": True, "message": "Acceso autorizado"}), 200
+        else:
+            return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
+
+    except Exception as e:
+        print("Error al validar master:", e)
+        return jsonify({"success": False, "message": "Error en el servidor"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
 
 
 @app.route("/api/reset-asistencias-alumnos", methods=["DELETE"])
@@ -451,6 +573,83 @@ def reset_asistencias_personal():
     return jsonify({"success": True, "message": "✅ Asistencias de personal borradas"})
 
 
+@app.route("/api/generar-inasistencias", methods=["POST"])
+def generar_inasistencias():
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        # =========================
+        # INASISTENCIAS ALUMNOS
+        # =========================
+        cur.execute("""
+            INSERT INTO asistencias (
+                matricula, fecha, fecha_dia, hora_entrada, hora_salida, estado_asistencia
+            )
+            SELECT 
+                e.matricula,
+                CURRENT_TIMESTAMP,
+                (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date,
+                NULL,
+                NULL,
+                'Inasistencia'
+            FROM estudiantes e
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM asistencias a
+                WHERE a.matricula = e.matricula
+                  AND a.fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+            )
+        """)
+
+        alumnos_insertados = cur.rowcount
+
+        # =========================
+        # INASISTENCIAS PERSONAL
+        # =========================
+        cur.execute("""
+            INSERT INTO asistencias_personal (
+                personal_id, fecha, fecha_dia, hora_entrada, hora_salida, estado_asistencia
+            )
+            SELECT 
+                p.id,
+                CURRENT_TIMESTAMP,
+                (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date,
+                NULL,
+                NULL,
+                'Inasistencia'
+            FROM personal p
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM asistencias_personal ap
+                WHERE ap.personal_id = p.id
+                  AND ap.fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+            )
+        """)
+
+        personal_insertado = cur.rowcount
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Inasistencias generadas correctamente",
+            "alumnos_insertados": alumnos_insertados,
+            "personal_insertado": personal_insertado
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al generar inasistencias:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al generar inasistencias"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
 
 @app.route("/api/listar_estudiantes", methods=["GET"])
 def listar_estudiantes():
@@ -460,7 +659,7 @@ def listar_estudiantes():
     try:
         cur.execute("""
             SELECT matricula, nombre, apellido_paterno, apellido_materno,
-                   carrera, semestre, grupo
+                   carrera, semestre, grupo, chat_id_telegram
             FROM estudiantes
         """)
 
@@ -476,7 +675,8 @@ def listar_estudiantes():
             "apellido_materno": est[3],
             "carrera": est[4].title() if est[4] else None,
             "semestre": est[5],
-            "grupo": est[6]
+            "grupo": est[6],
+            "chat_id_telegram": est[7]
         } for est in estudiantes]
 
         return jsonify({"success": True, "estudiantes": resultado}), 200
@@ -697,6 +897,76 @@ def vista_modificar_reporte_estudiantes():
 def vista_panel_inicio():
     return render_template("panel_inicio.html")
 
+@app.route("/api/dashboard", methods=["GET"])
+def dashboard():
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        # Total alumnos
+        cur.execute("SELECT COUNT(*) FROM estudiantes")
+        total_alumnos = cur.fetchone()[0]
+
+        # Total personal
+        cur.execute("SELECT COUNT(*) FROM personal")
+        total_personal = cur.fetchone()[0]
+
+        # Asistencias de alumnos hoy
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Asistencia'
+        """)
+        asistencias_alumnos_hoy = cur.fetchone()[0]
+
+        # Asistencias de personal hoy
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias_personal
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Asistencia'
+        """)
+        asistencias_personal_hoy = cur.fetchone()[0]
+
+        asistencias_hoy = asistencias_alumnos_hoy + asistencias_personal_hoy
+
+        # Inasistencias de alumnos hoy
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Inasistencia'
+        """)
+        inasistencias_alumnos_hoy = cur.fetchone()[0]
+
+        # Inasistencias de personal hoy
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias_personal
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Inasistencia'
+        """)
+        inasistencias_personal_hoy = cur.fetchone()[0]
+
+        inasistencias_hoy = inasistencias_alumnos_hoy + inasistencias_personal_hoy
+
+        return jsonify({
+            "success": True,
+            "total_alumnos": total_alumnos,
+            "total_personal": total_personal,
+            "asistencias_hoy": asistencias_hoy,
+            "inasistencias": inasistencias_hoy
+        }), 200
+
+    except Exception as e:
+        print("Error dashboard:", e)
+        return jsonify({"success": False, "message": "Error al cargar dashboard"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+        
 @app.route("/registro")
 def vista_registro():
     return render_template("registro.html")
@@ -761,7 +1031,193 @@ def vista_rg_admin_justificaciones():
 def vista_reportes():
     return render_template("reportes.html")
 
+@app.route("/cambiar-contrasena")
+def vista_cambiar_contrasena():
+    return render_template("cambiar_contrasena.html")
 
+@app.route("/restablecer-contrasena")
+def vista_restablecer_contrasena():
+    return render_template("restablecer_contrasena.html")
+
+@app.route("/api/restablecer-contrasena", methods=["POST"])
+def restablecer_contrasena():
+    data = request.get_json() or {}
+
+    usuario_master = data.get("usuario_master")
+    password_master = data.get("password_master")
+    usuario_objetivo = data.get("usuario_objetivo")
+    nueva_password = data.get("nueva_password")
+
+    if not usuario_master or not password_master or not usuario_objetivo or not nueva_password:
+        return jsonify({"success": False, "message": "Faltan datos"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT es_maestro, contraseña
+            FROM usuarios
+            WHERE usuario = %s
+        """, (usuario_master,))
+
+        resultado = cur.fetchone()
+
+        if not resultado:
+            return jsonify({
+                "success": False,
+                "message": "Credenciales de master incorrectas"
+            }), 401
+
+        es_maestro = resultado[0]
+        hash_master = resultado[1]
+
+        if not es_maestro or not verificar_contrasena(password_master, hash_master):
+            return jsonify({
+                "success": False,
+                "message": "Credenciales de master incorrectas"
+            }), 401
+
+        cur.execute("""
+            SELECT id FROM usuarios WHERE usuario = %s
+        """, (usuario_objetivo,))
+
+        existe = cur.fetchone()
+
+        if not existe:
+            return jsonify({
+                "success": False,
+                "message": "El usuario a restablecer no existe"
+            }), 404
+
+        nueva_hash = encriptar_contrasena(nueva_password)
+
+        cur.execute("""
+            UPDATE usuarios
+            SET contraseña = %s
+            WHERE usuario = %s
+        """, (nueva_hash, usuario_objetivo))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Contraseña restablecida para {usuario_objetivo}"
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al restablecer contraseña:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error en el servidor"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/api/cambiar-contrasena", methods=["POST"])
+def cambiar_contrasena():
+    data = request.get_json() or {}
+
+    usuario = data.get("usuario")
+    actual = data.get("actual")
+    nueva = data.get("nueva")
+
+    if not usuario or not actual or not nueva:
+        return jsonify({"success": False, "message": "Faltan datos"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT contraseña
+            FROM usuarios
+            WHERE usuario = %s
+        """, (usuario,))
+
+        resultado = cur.fetchone()
+
+        if not resultado:
+            return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+
+        hash_guardado = resultado[0]
+
+        if not verificar_contrasena(actual, hash_guardado):
+            return jsonify({
+                "success": False,
+                "message": "Usuario o contraseña actual incorrectos"
+            }), 401
+
+        nueva_hash = encriptar_contrasena(nueva)
+
+        cur.execute("""
+            UPDATE usuarios
+            SET contraseña = %s
+            WHERE usuario = %s
+        """, (nueva_hash, usuario))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Contraseña actualizada correctamente"
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al cambiar contraseña:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error en el servidor"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/validar-admin-master", methods=["POST"])
+def validar_admin_master():
+    data = request.get_json() or {}
+    usuario = data.get("usuario")
+    contraseña = data.get("contraseña")
+
+    if not usuario or not contraseña:
+        return jsonify({"success": False, "message": "Faltan credenciales"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT rol, es_maestro, contraseña
+            FROM usuarios
+            WHERE usuario = %s
+        """, (usuario,))
+        resultado = cur.fetchone()
+
+        if not resultado:
+            return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
+
+        rol = resultado[0]
+        es_maestro = resultado[1]
+        hash_guardado = resultado[2]
+
+        if (rol == "admin" or es_maestro) and verificar_contrasena(contraseña, hash_guardado):
+            return jsonify({"success": True, "message": "Acceso autorizado"}), 200
+        else:
+            return jsonify({"success": False, "message": "Credenciales incorrectas o sin permisos"}), 401
+
+    except Exception as e:
+        print("Error al validar admin/master:", e)
+        return jsonify({"success": False, "message": "Error en el servidor"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
 
 @app.route("/api/modificar-reporte-personal", methods=["GET"])
 def modificar_reporte_personal():
@@ -856,7 +1312,7 @@ def generar_reporte_personal():
 
             query = """
                 SELECT p.clave, p.nombre, p.apellido_paterno, p.apellido_materno, p.puesto,
-                       a.fecha, a.estado_asistencia
+                       a.fecha, a.estado_asistencia, a.motivo_justificacion
                 FROM asistencias_personal a
                 JOIN personal p ON a.personal_id = p.id
                 WHERE a.estado_asistencia = %s
@@ -899,7 +1355,8 @@ def generar_reporte_personal():
                 "apellido_materno": r[3],
                 "puesto": r[4],
                 "fecha": r[5].strftime("%Y-%m-%d"),
-                "estado_asistencia": r[6]
+                "estado_asistencia": r[6],
+                "motivo_justificacion": r[7]
             } for r in resultados]
 
         return jsonify({"success": True, "registros": registros}), 200
@@ -911,7 +1368,6 @@ def generar_reporte_personal():
     finally:
         cursor.close()
         conn.close()
-
 
 # Guardar cambios en asistencias del personal
 @app.route("/api/guardar-cambios-personal", methods=["POST"])
@@ -930,23 +1386,30 @@ def guardar_cambios_personal():
             clave = cambio.get("clave")
             fecha = cambio.get("fecha")
             estado = cambio.get("estado_asistencia")
+            motivo = cambio.get("motivo_justificacion")
 
             if not clave or not fecha or not estado:
                 return jsonify({"success": False, "message": "Datos incompletos en un cambio"}), 400
 
+            if estado != "Justificación":
+                motivo = None
+
             cur.execute("""
                 UPDATE asistencias_personal
-                SET estado_asistencia = %s
-                WHERE personal_id = (SELECT id FROM personal WHERE clave = %s)
-                  AND fecha = %s
-            """, (estado, clave, fecha))
+                SET estado_asistencia = %s,
+                    motivo_justificacion = %s
+                WHERE personal_id = (
+                    SELECT id FROM personal WHERE clave = %s
+                )
+                  AND fecha_dia = %s
+            """, (estado, motivo, clave, fecha))
 
         conn.commit()
         return jsonify({"success": True, "message": "Cambios guardados correctamente"}), 200
 
     except Exception as e:
         conn.rollback()
-        print("Error al guardar cambios:", e)
+        print("Error al guardar cambios del personal:", e)
         return jsonify({"success": False, "message": "Error al guardar cambios"}), 500
 
     finally:
@@ -1027,6 +1490,53 @@ def eliminar_registro_estudiante():
         conn.close()
 
 
+@app.route("/api/guardar-cambios", methods=["POST"])
+def guardar_cambios():
+    data = request.get_json()
+    cambios = data.get("cambios", [])
+
+    if not cambios:
+        return jsonify({"success": False, "message": "No se recibieron cambios"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        for cambio in cambios:
+            matricula = cambio.get("matricula")
+            fecha = cambio.get("fecha")
+            estado = cambio.get("estado_asistencia")
+            motivo = cambio.get("motivo_justificacion")
+
+            if not matricula or not fecha or not estado:
+                return jsonify({"success": False, "message": "Datos incompletos en un cambio"}), 400
+
+            # Si NO es justificación, borrar motivo
+            if estado != "Justificación":
+                motivo = None
+
+            cur.execute("""
+                UPDATE asistencias
+                SET estado_asistencia = %s,
+                    motivo_justificacion = %s
+                WHERE matricula = %s
+                  AND fecha_dia = %s
+            """, (estado, motivo, matricula, fecha))
+
+        conn.commit()
+        return jsonify({"success": True, "message": "Cambios guardados correctamente"}), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al guardar cambios:", e)
+        return jsonify({"success": False, "message": "Error al guardar cambios"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+
 # Listar asistencias con filtros avanzados
 @app.route("/api/listar-asistencias", methods=["POST"])
 def listar_asistencias():
@@ -1049,7 +1559,8 @@ def listar_asistencias():
                 SELECT e.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
                        e.carrera, e.semestre, e.grupo,
                        to_char(a.fecha AT TIME ZONE 'America/Mexico_City', 'DD/MM/YYYY HH12:MI AM') AS fecha,
-                       a.estado_asistencia
+                       a.estado_asistencia,
+                       a.motivo_justificacion
                 FROM asistencias a
                 JOIN estudiantes e ON a.matricula = e.matricula
                 WHERE a.fecha BETWEEN %s AND %s
@@ -1071,7 +1582,8 @@ def listar_asistencias():
                 SELECT p.clave, p.nombre, p.apellido_paterno, p.apellido_materno,
                        p.puesto,
                        to_char(a.fecha AT TIME ZONE 'America/Mexico_City', 'DD/MM/YYYY HH12:MI AM') AS fecha,
-                       a.estado_asistencia
+                       a.estado_asistencia,
+                       a.motivo_justificacion
                 FROM asistencias_personal a
                 JOIN personal p ON a.personal_id = p.id
                 WHERE a.fecha BETWEEN %s AND %s
@@ -1104,8 +1616,9 @@ def listar_asistencias():
         resultados = []
         for r in rows:
             registro = {
-                "fecha": r[-2],
-                "estado_asistencia": r[-1]
+                "fecha": r[-3],
+                "estado_asistencia": r[-2],
+                "motivo_justificacion": r[-1]
             }
 
             if comunidad == "estudiantes":
@@ -1138,6 +1651,7 @@ def listar_asistencias():
     finally:
         cur.close()
         conn.close()
+
 @app.route("/api/asistencias-hoy", methods=["GET"])
 def asistencias_hoy():
     conn = psycopg2.connect("dbname=db_control user=postgres password=12345 host=localhost port=5432")
@@ -1244,14 +1758,14 @@ def registrar_asistencia():
         # BUSCAR ESTUDIANTE
         # =========================
         cur.execute("""
-            SELECT matricula, nombre
+            SELECT matricula, nombre, chat_id_telegram
             FROM estudiantes
             WHERE matricula::text = %s
         """, (codigo,))
         alumno = cur.fetchone()
 
         if alumno:
-            matricula, nombre = alumno
+            matricula, nombre, chat_id_tutor = alumno
 
             # Buscar registro del día
             cur.execute("""
@@ -1261,6 +1775,12 @@ def registrar_asistencia():
                   AND fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
             """, (matricula,))
             registro = cur.fetchone()
+
+            def destinatarios_estudiante():
+                destinos = [CHAT_ID_ADMIN]
+                if chat_id_tutor and str(chat_id_tutor).strip():
+                    destinos.append(str(chat_id_tutor).strip())
+                return destinos
 
             # Si no existe registro hoy: crear ENTRADA
             if not registro:
@@ -1278,6 +1798,20 @@ def registrar_asistencia():
                     )
                 """, (matricula,))
                 conn.commit()
+
+                fecha_local = datetime.now().strftime("%d/%m/%Y")
+                hora_local = datetime.now().strftime("%I:%M %p")
+
+                mensaje = (
+                    f"✅ Entrada registrada\n"
+                    f"Nombre: {nombre}\n"
+                    f"Matrícula: {matricula}\n"
+                    f"Tipo: Estudiante\n"
+                    f"Fecha: {fecha_local}\n"
+                    f"Hora: {hora_local}"
+                )
+                enviar_telegram_multiple(mensaje, destinatarios_estudiante())
+
                 cur.close()
                 conn.close()
 
@@ -1302,6 +1836,20 @@ def registrar_asistencia():
                     WHERE id = %s
                 """, (asistencia_id,))
                 conn.commit()
+
+                fecha_local = datetime.now().strftime("%d/%m/%Y")
+                hora_local = datetime.now().strftime("%I:%M %p")
+
+                mensaje = (
+                    f"✅ Entrada registrada\n"
+                    f"Nombre: {nombre}\n"
+                    f"Matrícula: {matricula}\n"
+                    f"Tipo: Estudiante\n"
+                    f"Fecha: {fecha_local}\n"
+                    f"Hora: {hora_local}"
+                )
+                enviar_telegram_multiple(mensaje, destinatarios_estudiante())
+
                 cur.close()
                 conn.close()
 
@@ -1322,6 +1870,20 @@ def registrar_asistencia():
                     WHERE id = %s
                 """, (asistencia_id,))
                 conn.commit()
+
+                fecha_local = datetime.now().strftime("%d/%m/%Y")
+                hora_local = datetime.now().strftime("%I:%M %p")
+
+                mensaje = (
+                    f"🚪 Salida registrada\n"
+                    f"Nombre: {nombre}\n"
+                    f"Matrícula: {matricula}\n"
+                    f"Tipo: Estudiante\n"
+                    f"Fecha: {fecha_local}\n"
+                    f"Hora: {hora_local}"
+                )
+                enviar_telegram_multiple(mensaje, destinatarios_estudiante())
+
                 cur.close()
                 conn.close()
 
@@ -1382,6 +1944,20 @@ def registrar_asistencia():
                     )
                 """, (personal_id,))
                 conn.commit()
+
+                fecha_local = datetime.now().strftime("%d/%m/%Y")
+                hora_local = datetime.now().strftime("%I:%M %p")
+
+                mensaje = (
+                    f"✅ Entrada registrada\n"
+                    f"Nombre: {nombre}\n"
+                    f"Clave: {clave}\n"
+                    f"Tipo: Personal\n"
+                    f"Fecha: {fecha_local}\n"
+                    f"Hora: {hora_local}"
+                )
+                enviar_telegram_multiple(mensaje, [CHAT_ID_ADMIN])
+
                 cur.close()
                 conn.close()
 
@@ -1406,6 +1982,20 @@ def registrar_asistencia():
                     WHERE id = %s
                 """, (asistencia_id,))
                 conn.commit()
+
+                fecha_local = datetime.now().strftime("%d/%m/%Y")
+                hora_local = datetime.now().strftime("%I:%M %p")
+
+                mensaje = (
+                    f"✅ Entrada registrada\n"
+                    f"Nombre: {nombre}\n"
+                    f"Clave: {clave}\n"
+                    f"Tipo: Personal\n"
+                    f"Fecha: {fecha_local}\n"
+                    f"Hora: {hora_local}"
+                )
+                enviar_telegram_multiple(mensaje, [CHAT_ID_ADMIN])
+
                 cur.close()
                 conn.close()
 
@@ -1426,6 +2016,20 @@ def registrar_asistencia():
                     WHERE id = %s
                 """, (asistencia_id,))
                 conn.commit()
+
+                fecha_local = datetime.now().strftime("%d/%m/%Y")
+                hora_local = datetime.now().strftime("%I:%M %p")
+
+                mensaje = (
+                    f"🚪 Salida registrada\n"
+                    f"Nombre: {nombre}\n"
+                    f"Clave: {clave}\n"
+                    f"Tipo: Personal\n"
+                    f"Fecha: {fecha_local}\n"
+                    f"Hora: {hora_local}"
+                )
+                enviar_telegram_multiple(mensaje, [CHAT_ID_ADMIN])
+
                 cur.close()
                 conn.close()
 
@@ -1549,38 +2153,105 @@ def cargar_estudiantes_excel():
     file = request.files["file"]
 
     try:
-        # Leer Excel con pandas
-        df = pd.read_excel(file)
+        df = pd.read_excel(file, header=3)
 
-        # Validar columnas necesarias
-        columnas_requeridas = ["matricula", "nombre", "apellido_paterno", "apellido_materno", "carrera", "semestre", "grupo"]
+        # Normalizar nombres de columnas
+        df.columns = [str(col).strip().lower() for col in df.columns]
+
+        columnas_requeridas = [
+            "matricula", "nombre", "apellido_paterno",
+            "apellido_materno", "carrera", "semestre", "grupo"
+        ]
+
         for col in columnas_requeridas:
             if col not in df.columns:
                 return jsonify({"success": False, "message": f"Falta columna: {col}"}), 400
+
+        if "chat_id_telegram" not in df.columns:
+            df["chat_id_telegram"] = None
 
         conn = conectar_bd()
         cur = conn.cursor()
 
         insertados = 0
+        actualizados = 0
         errores = []
+        matriculas_excel = set()
 
         for _, row in df.iterrows():
             try:
-                cur.execute("""
-                    INSERT INTO estudiantes (matricula, nombre, apellido_paterno, apellido_materno, carrera, semestre, grupo)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    str(row["matricula"]).strip(),
-                    row["nombre"],
-                    row["apellido_paterno"],
-                    row["apellido_materno"],
-                    row["carrera"],
-                    row["semestre"],
-                    row["grupo"]
-                ))
-                insertados += 1
+                matricula = str(row["matricula"]).strip()
+                nombre = str(row["nombre"]).strip() if pd.notna(row["nombre"]) else None
+                apellido_paterno = str(row["apellido_paterno"]).strip() if pd.notna(row["apellido_paterno"]) else None
+                apellido_materno = str(row["apellido_materno"]).strip() if pd.notna(row["apellido_materno"]) else None
+                carrera = str(row["carrera"]).strip() if pd.notna(row["carrera"]) else None
+                semestre = str(row["semestre"]).strip() if pd.notna(row["semestre"]) else None
+                grupo = str(row["grupo"]).strip() if pd.notna(row["grupo"]) else None
+
+                chat_id_telegram = row["chat_id_telegram"]
+                if pd.isna(chat_id_telegram) or str(chat_id_telegram).strip() == "":
+                    chat_id_telegram = None
+                else:
+                    chat_id_telegram = str(chat_id_telegram).strip()
+                    if not chat_id_telegram.isdigit():
+                        raise ValueError("El chat_id_telegram solo debe contener números")
+
+                # Validar repetidos dentro del mismo Excel
+                if matricula in matriculas_excel:
+                    raise ValueError("Matrícula repetida dentro del archivo Excel")
+
+                matriculas_excel.add(matricula)
+
+                # Verificar si ya existe en BD
+                cur.execute("SELECT 1 FROM estudiantes WHERE matricula = %s", (matricula,))
+                existe = cur.fetchone()
+
+                if existe:
+                    cur.execute("""
+                        UPDATE estudiantes
+                        SET nombre = %s,
+                            apellido_paterno = %s,
+                            apellido_materno = %s,
+                            carrera = %s,
+                            semestre = %s,
+                            grupo = %s,
+                            chat_id_telegram = %s
+                        WHERE matricula = %s
+                    """, (
+                        nombre,
+                        apellido_paterno,
+                        apellido_materno,
+                        carrera,
+                        semestre,
+                        grupo,
+                        chat_id_telegram,
+                        matricula
+                    ))
+                    actualizados += 1
+                else:
+                    cur.execute("""
+                        INSERT INTO estudiantes (
+                            matricula, nombre, apellido_paterno, apellido_materno,
+                            carrera, semestre, grupo, chat_id_telegram
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        matricula,
+                        nombre,
+                        apellido_paterno,
+                        apellido_materno,
+                        carrera,
+                        semestre,
+                        grupo,
+                        chat_id_telegram
+                    ))
+                    insertados += 1
+
             except Exception as e:
-                errores.append({"matricula": row["matricula"], "error": str(e)})
+                errores.append({
+                    "matricula": row["matricula"] if "matricula" in row else "Sin matrícula",
+                    "error": str(e)
+                })
 
         conn.commit()
         cur.close()
@@ -1589,24 +2260,32 @@ def cargar_estudiantes_excel():
         return jsonify({
             "success": True,
             "insertados": insertados,
-            "errores": errores
+            "actualizados": actualizados,
+            "errores": errores,
+            "total": len(df)
         }), 200
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Error procesando archivo: {str(e)}"}), 500
-
 @app.route("/verificacion")
 def vista_verificacion():
     return render_template("verificación.html")
 
 @app.route("/verificacion-usuarios")
 def vista_verificacion_usuarios():
+    if not session.get("verificacion_autorizada"):
+        return redirect(url_for("acceso_verificacion"))
     return render_template("Verificacion_Usuarios.html")
 
+@app.route("/cerrar-verificacion")
+def cerrar_verificacion():
+    session.pop("verificacion_autorizada", None)
+    session.pop("usuario_verificacion", None)
+    return redirect(url_for("acceso_verificacion"))
 
 # 🚀 Ejecutar la app
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
 
 
 

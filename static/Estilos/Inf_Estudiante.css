@@ -66,3 +66,11 @@ aside .list-group {
 .input-group-text{
     background-color: darkgray;
 }
+
+.panel_lateral .list-group-item {
+  transition: all 0.3s ease;
+}
+
+.panel_lateral .list-group-item:hover {
+  box-shadow: inset 5px 0 0 white;
+}

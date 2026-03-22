@@ -23,11 +23,15 @@ body, html {
 /* Panel lateral */
 .panel_lateral {
   background-color: rgb(171, 15, 57);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+
+  /* 🔥 evitar que se encoja */
   width: 250px;
-  min-height: 100vh;   /* ocupa toda la ventana */
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
+  min-width: 250px;
+  max-width: 250px;
+  min-height: 90vh;
 }
 
 /* Items del menú */
@@ -35,7 +39,23 @@ body, html {
   background-color: transparent;
   border: none;
   color: #fff;
+  margin-top: 0%;
   padding-top: 30px;
+  border-top: 0px;
+}
+
+/* 🔥 ACTIVO */
+.panel_lateral .list-group-item.active {
+  background-color: rgb(120, 10, 40);
+  color: #fff;
+  font-weight: bold;
+  border-left: 5px solid #fff;
+}
+
+/* 🔥 HOVER */
+.panel_lateral .list-group-item:hover {
+  background-color: rgb(140, 10, 45);
+  color: #fff;
 }
 
 aside .list-group {
@@ -47,12 +67,11 @@ aside .list-group {
 
 /* Sección principal */
 section {
-  flex-grow: 1;
-  padding: 20px;
-  display: flex;
+    display: flex;
   justify-content: center;
   align-items: flex-start;
-  max-width: calc(100% - 250px); /* se ajusta al espacio restante */
+  padding-top: 170px;
+  margin: 170px; /* se ajusta al espacio restante */
 }
 
 /* Íconos */
@@ -74,11 +93,22 @@ section {
   font-weight: bold;
   transition: background-color 0.3s ease;
 }
+
 .btn:hover {
   background-color: rgb(140, 10, 45);
 }
 
 /* Tarjetas */
 .card {
-  margin-top: 0; /* pegada al borde superior */
+  margin-top: 0;
+  width: 100%;
+  max-width: 800px; /* 🔥 controla tamaño */
+}
+
+.panel_lateral .list-group-item {
+  transition: all 0.3s ease;
+}
+
+.panel_lateral .list-group-item:hover {
+  box-shadow: inset 5px 0 0 white;
 }

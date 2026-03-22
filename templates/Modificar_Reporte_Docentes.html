@@ -56,7 +56,40 @@
     </table>
   </div>
 
+  <!-- Modal motivo de justificación -->
+  <div class="modal fade" id="modalJustificacionPersonal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-warning text-white">
+          <h5 class="modal-title">Motivo de justificación</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label for="motivoJustificacionPersonal" class="form-label">Selecciona o escribe el motivo</label>
+          <select id="motivoJustificacionPersonal" class="form-select mb-3">
+            <option value="">-- Selecciona un motivo --</option>
+            <option value="Enfermedad">Enfermedad</option>
+            <option value="Cita médica">Cita médica</option>
+            <option value="Asunto familiar">Asunto familiar</option>
+            <option value="Actividad institucional">Actividad institucional</option>
+            <option value="Permiso autorizado">Permiso autorizado</option>
+            <option value="Otro">Otro</option>
+          </select>
+
+          <textarea id="detalleJustificacionPersonal" class="form-control" rows="3" placeholder="Escribe un detalle adicional si es necesario"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-warning text-white" id="btnGuardarMotivoPersonal">Aceptar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
+    let selectJustificacionActual = null;
+    let motivosJustificacion = {};
+
     function cargarAsistencias(clave, inicio, fin) {
       fetch(`/api/modificar-reporte-personal?clave=${encodeURIComponent(clave || "")}&inicio=${encodeURIComponent(inicio || "")}&fin=${encodeURIComponent(fin || "")}`)
         .then(res => res.json())
@@ -77,6 +110,10 @@
             }
 
             const id = `${registro.clave}_${registro.fecha}`;
+
+            if (registro.motivo_justificacion) {
+              motivosJustificacion[id] = registro.motivo_justificacion;
+            }
 
             const fila = document.createElement("tr");
             fila.innerHTML = `
@@ -102,12 +139,75 @@
             `;
             tbody.appendChild(fila);
           });
+
+          conectarEventosJustificacion();
         })
         .catch(error => {
           console.error("Error al cargar asistencias:", error);
           alert("Hubo un problema al conectar con el servidor.");
         });
     }
+
+    function conectarEventosJustificacion() {
+      document.querySelectorAll(".estado-asistencia").forEach(select => {
+        select.addEventListener("change", function () {
+          const id = this.dataset.id;
+
+          if (this.value === "Justificación") {
+            selectJustificacionActual = this;
+
+            const motivoGuardado = motivosJustificacion[id] || "";
+            document.getElementById("motivoJustificacionPersonal").value = "";
+            document.getElementById("detalleJustificacionPersonal").value = motivoGuardado;
+
+            const modal = new bootstrap.Modal(document.getElementById("modalJustificacionPersonal"));
+            modal.show();
+          } else {
+            delete motivosJustificacion[id];
+          }
+        });
+      });
+    }
+
+    document.getElementById("btnGuardarMotivoPersonal").addEventListener("click", function () {
+      if (!selectJustificacionActual) return;
+
+      const id = selectJustificacionActual.dataset.id;
+      const motivo = document.getElementById("motivoJustificacionPersonal").value.trim();
+      const detalle = document.getElementById("detalleJustificacionPersonal").value.trim();
+
+      let textoFinal = "";
+
+      if (motivo && detalle) {
+        textoFinal = `${motivo} - ${detalle}`;
+      } else if (motivo) {
+        textoFinal = motivo;
+      } else if (detalle) {
+        textoFinal = detalle;
+      }
+
+      if (!textoFinal) {
+        alert("Debes seleccionar o escribir un motivo de justificación.");
+        return;
+      }
+
+      motivosJustificacion[id] = textoFinal;
+
+      const modal = bootstrap.Modal.getInstance(document.getElementById("modalJustificacionPersonal"));
+      modal.hide();
+    });
+
+    document.getElementById("modalJustificacionPersonal").addEventListener("hidden.bs.modal", function () {
+      if (selectJustificacionActual) {
+        const id = selectJustificacionActual.dataset.id;
+
+        if (!motivosJustificacion[id] && selectJustificacionActual.value === "Justificación") {
+          selectJustificacionActual.value = "";
+        }
+      }
+
+      selectJustificacionActual = null;
+    });
 
     window.addEventListener("DOMContentLoaded", function () {
       const params = new URLSearchParams(window.location.search);
@@ -135,7 +235,12 @@
           const estado = select.value;
 
           if (estado) {
-            cambios.push({ clave, fecha, estado_asistencia: estado });
+            cambios.push({
+              clave,
+              fecha,
+              estado_asistencia: estado,
+              motivo_justificacion: estado === "Justificación" ? (motivosJustificacion[id] || "") : null
+            });
           }
         });
 
@@ -148,6 +253,7 @@
         .then(response => {
           if (response.success) {
             alert("Cambios guardados correctamente.");
+            cargarAsistencias(clave, inicio, fin);
           } else {
             alert(response.message || "No se pudieron guardar los cambios.");
           }
@@ -167,6 +273,8 @@
             fila.remove();
 
             if (id) {
+              delete motivosJustificacion[id];
+
               const [clave, fecha] = id.split("_");
               fetch("/api/eliminar-registro-personal", {
                 method: "POST",

@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='Estilos/login.css') }}">
 
-  <!-- Fondo corregido para evitar errores -->
   <style>
     .fondo-login {
       background: url("{{ url_for('static', filename='Images/backgroundCecyteh.png') }}") center/cover no-repeat;
@@ -16,7 +15,6 @@
 </head>
 <body>
 
-  <!-- Navbar -->
   <header>
     <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
       <div class="container-fluid">
@@ -28,7 +26,6 @@
     </nav>
   </header>
 
-  <!-- Fondo + Login -->
   <main>
     <div class="d-flex justify-content-center align-items-center vh-100 fondo-login">
       <div class="card shadow-lg p-4" style="width: 22rem;">
@@ -46,14 +43,20 @@
           </div>
 
           <button type="submit" class="btn btn-success w-100 mb-2">INICIAR SESIÓN</button>
+
+          <div class="text-center mb-2">
+            <a href="/cambiar-contrasena" class="text-decoration-none">Cambiar Contraseña</a>
+          </div>
+
+          <div class="text-center mb-2">
+            <a href="/restablecer-contrasena" class="text-decoration-none">Restablecer contraseña (Master)</a>
+          </div>
+
+          <button type="button" class="btn btn-outline-success w-100" data-bs-toggle="modal" data-bs-target="#modalMaestro">
+            REGISTRAR
+          </button>
         </form>
 
-        <!-- Botón para abrir modal -->
-        <button type="button" class="btn btn-outline-success w-100" data-bs-toggle="modal" data-bs-target="#modalMaestro">
-          REGISTRAR
-        </button>
-
-        <!-- Error login -->
         <div id="mensajeError" class="alert alert-danger mt-3 d-none" role="alert">
           ❌ Usuario o contraseña incorrectos.
         </div>
@@ -61,7 +64,6 @@
     </div>
   </main>
 
-  <!-- Modal maestro -->
   <div class="modal fade" id="modalMaestro" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -95,7 +97,6 @@
     </div>
   </div>
 
-  <!-- Scripts -->
   <script>
     const formLogin = document.getElementById("formLogin");
     const mensajeError = document.getElementById("mensajeError");
@@ -120,13 +121,14 @@
 
           window.location.href = "/panel-inicio";
         } else {
+          mensajeError.textContent = data.message || "❌ No se pudo iniciar sesión.";
           mensajeError.classList.remove("d-none");
-          setTimeout(() => mensajeError.classList.add("d-none"), 3000);
+          setTimeout(() => mensajeError.classList.add("d-none"), 4000);
         }
       })
       .catch(err => {
         console.error("Error:", err);
-        mensajeError.textContent = "Error al conectar con el servidor.";
+        mensajeError.textContent = "❌ Error al conectar con el servidor.";
         mensajeError.classList.remove("d-none");
       });
     });
@@ -150,13 +152,14 @@
         if (data.success && data.es_maestro) {
           window.location.href = "/registro";
         } else {
+          mensajeMaestro.textContent = data.message || "❌ Usuario o contraseña incorrectos.";
           mensajeMaestro.classList.remove("d-none");
-          setTimeout(() => mensajeMaestro.classList.add("d-none"), 3000);
+          setTimeout(() => mensajeMaestro.classList.add("d-none"), 4000);
         }
       })
       .catch(err => {
         console.error("Error:", err);
-        mensajeMaestro.textContent = "Error al conectar con el servidor.";
+        mensajeMaestro.textContent = "❌ Error al conectar con el servidor.";
         mensajeMaestro.classList.remove("d-none");
       });
     });

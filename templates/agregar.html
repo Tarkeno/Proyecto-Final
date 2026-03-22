@@ -44,11 +44,12 @@
     <nav class="panel_lateral" style="width:250px;">
       <aside>
         <div class="list-group">
+          <a href="/panel-inicio" class="list-group-item list-group-item-action"><i class="fa-solid fa-house me-2"></i> Inicio</a>
           <a href="/historial" class="list-group-item list-group-item-action"><i class="fa-solid fa-file-lines me-2"></i> Historial</a>
           <a href="/estudiantes" class="list-group-item list-group-item-action"><i class="fa-solid fa-user-graduate me-2"></i> Estudiantes</a>
           <a href="/docentes" class="list-group-item list-group-item-action"><i class="fa-solid fa-chalkboard-user me-2"></i> Personal</a>
           <a href="/reportes" class="list-group-item list-group-item-action"><i class="fa-solid fa-chart-line me-2"></i> Reportes</a>
-          <a href="/agregar" class="list-group-item list-group-item-action"><i class="fa-solid fa-plus me-2"></i> Agregar Estudiante</a>
+          <a href="/agregar" class="list-group-item list-group-item-action active"><i class="fa-solid fa-plus me-2"></i> Agregar Estudiante</a>
           <a href="/agregar-personal" class="list-group-item list-group-item-action"><i class="fa-solid fa-plus me-2"></i> Agregar Personal</a>
           <a href="/verificacion-usuarios" class="list-group-item list-group-item-action"><i class="fa-solid fa-check me-2"></i> Verificación</a>
           <a href="#" class="list-group-item list-group-item-action" onclick="confirmarSalida(event)"><i class="fa-solid fa-sign-out-alt me-2"></i> Salir</a>
@@ -67,7 +68,10 @@
               <div class="col-md-4"><input type="text" id="Nombre" class="form-control" placeholder="Nombre" required></div>
               <div class="col-md-4"><input type="text" id="Apellido_Paterno" class="form-control" placeholder="Apellido Paterno" required></div>
               <div class="col-md-4"><input type="text" id="Apellido_Materno" class="form-control" placeholder="Apellido Materno" required></div>
-
+              <div class="col-md-12">
+                <input type="text" id="Chat_ID_Telegram" class="form-control" placeholder="Chat ID Telegram del tutor (opcional)"
+                  inputmode="numeric" pattern="^[0-9]+" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+              </div>
               <div class="col-md-12">
                 <label for="Carrera" class="form-label">Carrera</label>
                 <select id="Carrera" class="form-select" required>
@@ -93,13 +97,22 @@
                 <i class="fa-solid fa-file-excel me-2"></i> Cargar Excel Masivo
               </button>
 
+              <a href="{{ url_for('static', filename='Plantillas/plantilla_estudiantes.xlsx') }}"
+                 class="btn btn-success ms-2" download>
+                <i class="fa-solid fa-download me-2"></i> Descargar plantilla
+              </a>
+
               <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#masterLoginModal" type="button">
                 <i class="fa-solid fa-user-shield me-2"></i> Control Escolar
               </button>
             </div>
 
             <div id="mensajeExito" class="alert alert-success mt-3 d-none" role="alert">
-              Operación realizada con éxito.
+              ✅ Operación realizada con éxito.
+            </div>
+
+            <div id="mensajeError" class="alert alert-danger mt-3 d-none" role="alert">
+              ❌ Ocurrió un error.
             </div>
           </form>
 
@@ -114,6 +127,27 @@
                   <form id="formExcel" enctype="multipart/form-data">
                     <input type="file" name="file" accept=".xlsx,.xls" class="form-control mb-3" required>
                     <button type="submit" class="btn btn-success w-100">Subir Excel</button>
+
+                    <div class="progress mt-3 d-none" id="progressContainer" style="height: 25px;">
+                      <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+
+                    <div id="resultadoCargaExcel" class="alert alert-info mt-3 d-none"></div>
+
+                    <div id="tablaErroresContainer" class="mt-3 d-none">
+                      <h6>Detalle de errores</h6>
+                      <div class="table-responsive">
+                        <table class="table table-bordered table-sm">
+                          <thead class="table-danger">
+                            <tr>
+                              <th>Matrícula</th>
+                              <th>Error</th>
+                            </tr>
+                          </thead>
+                          <tbody id="tablaErroresExcel"></tbody>
+                        </table>
+                      </div>
+                    </div>
                   </form>
                 </div>
               </div>
@@ -186,12 +220,15 @@
                 <button class="btn btn-danger mb-3" id="btnResetAlumnos" type="button">
                   <i class="fa-solid fa-users me-2"></i> Borrar asistencias de alumnos
                 </button>
+
                 <button class="btn btn-danger mb-3" id="btnResetPersonal" type="button">
                   <i class="fa-solid fa-chalkboard-user me-2"></i> Borrar asistencias de personal
                 </button>
+
                 <button class="btn btn-vino mb-3" id="btnAvanzarGrados" type="button">
                   <i class="fa-solid fa-forward me-2"></i> Avanzar ciclo escolar (1° → 6°)
                 </button>
+
                 <button class="btn btn-vino" data-bs-toggle="modal" data-bs-target="#gradoModal" type="button">
                   <i class="fa-solid fa-arrow-up-wide-short me-2"></i> Actualizar grado manual
                 </button>
@@ -244,6 +281,22 @@
     const formulario = document.getElementById("formularioPersona");
     const tabla = document.getElementById("tablaPersonas").querySelector("tbody");
     const busqueda = document.getElementById("busqueda");
+    const mensajeExito = document.getElementById("mensajeExito");
+    const mensajeError = document.getElementById("mensajeError");
+
+    function mostrarExito(texto) {
+      mensajeExito.textContent = texto;
+      mensajeExito.classList.remove("d-none");
+      mensajeError.classList.add("d-none");
+      setTimeout(() => mensajeExito.classList.add("d-none"), 3000);
+    }
+
+    function mostrarError(texto) {
+      mensajeError.textContent = texto;
+      mensajeError.classList.remove("d-none");
+      mensajeExito.classList.add("d-none");
+      setTimeout(() => mensajeError.classList.add("d-none"), 4000);
+    }
 
     busqueda.addEventListener("keyup", function() {
       const filtro = busqueda.value.toLowerCase();
@@ -271,15 +324,15 @@
         .then(res => res.json())
         .then(data => {
           if (data.success) {
-            alert("Estudiante eliminado correctamente");
             fila.remove();
+            mostrarExito("✅ Estudiante eliminado correctamente.");
           } else {
-            alert("Error: " + data.message);
+            mostrarError("❌ " + (data.message || "No se pudo eliminar el estudiante."));
           }
         })
         .catch(err => {
           console.error("Error al eliminar:", err);
-          alert("No se pudo conectar con el servidor.");
+          mostrarError("❌ No se pudo conectar con el servidor.");
         });
       }
     }
@@ -297,12 +350,20 @@
         document.getElementById("Carrera").value = est.carrera;
         document.getElementById("Semestre").value = est.semestre;
         document.getElementById("Grupo").value = est.grupo;
+        document.getElementById("Chat_ID_Telegram").value = est.chat_id_telegram || "";
         fila.dataset.editing = "true";
       });
     }
 
     formulario.addEventListener("submit", function(e) {
       e.preventDefault();
+
+      const chatid = document.getElementById("Chat_ID_Telegram").value.trim();
+
+      if (chatid && !/^[0-9]+$/.test(chatid)) {
+        mostrarError("❌ El Chat ID de Telegram debe contener solo números.");
+        return;
+      }
 
       const datosAlumno = {
         matricula: document.getElementById("Matricula").value.trim(),
@@ -311,10 +372,12 @@
         apellido_materno: document.getElementById("Apellido_Materno").value.trim(),
         carrera: document.getElementById("Carrera").value.trim(),
         semestre: document.getElementById("Semestre").value.trim(),
-        grupo: document.getElementById("Grupo").value.trim()
+        grupo: document.getElementById("Grupo").value.trim(),
+        chat_id_telegram: document.getElementById("Chat_ID_Telegram").value.trim()
       };
 
       const filaEditando = tabla.querySelector("[data-editing='true']");
+
       if (filaEditando) {
         fetch("/api/actualizar_estudiante", {
           method: "PUT",
@@ -324,17 +387,17 @@
         .then(res => res.json())
         .then(data => {
           if (data.success) {
-            alert("Estudiante actualizado correctamente");
             filaEditando.removeAttribute("data-editing");
             formulario.reset();
             cargarEstudiantes();
+            mostrarExito("✅ Estudiante actualizado correctamente.");
           } else {
-            alert("Error al actualizar: " + data.message);
+            mostrarError("❌ " + (data.message || "No se pudo actualizar el estudiante."));
           }
         })
         .catch(err => {
           console.error("Error al actualizar:", err);
-          alert("No se pudo conectar con el servidor.");
+          mostrarError("❌ No se pudo conectar con el servidor.");
         });
       } else {
         fetch("/api/agregar_estudiante", {
@@ -345,16 +408,16 @@
         .then(res => res.json())
         .then(data => {
           if (data.success) {
-            alert("Estudiante agregado correctamente");
             formulario.reset();
             cargarEstudiantes();
+            mostrarExito("✅ Estudiante guardado con éxito.");
           } else {
-            alert("Error al agregar alumno: " + data.message);
+            mostrarError("❌ " + (data.message || "No se pudo agregar el estudiante."));
           }
         })
         .catch(err => {
           console.error("Error al agregar:", err);
-          alert("No se pudo conectar con el servidor.");
+          mostrarError("❌ No se pudo conectar con el servidor.");
         });
       }
     });
@@ -386,12 +449,12 @@
               tabla.appendChild(fila);
             });
           } else {
-            alert(data.message);
+            mostrarError("❌ " + (data.message || "No se pudo cargar la lista de estudiantes."));
           }
         })
         .catch(error => {
           console.error("Error al cargar estudiantes:", error);
-          alert("No se pudo cargar la lista de estudiantes.");
+          mostrarError("❌ No se pudo cargar la lista de estudiantes.");
         });
     }
 
@@ -411,22 +474,94 @@
 
     document.getElementById("formExcel").addEventListener("submit", function(e) {
       e.preventDefault();
+
       const formData = new FormData(this);
-      fetch("/api/cargar-estudiantes-excel", {
-        method: "POST",
-        body: formData
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          alert(`Se insertaron ${data.insertados} estudiantes. Errores: ${data.errores.length}`);
-          cargarEstudiantes();
-          bootstrap.Modal.getInstance(document.getElementById("excelModal")).hide();
-        } else {
-          alert("Error: " + data.message);
+      const progressContainer = document.getElementById("progressContainer");
+      const progressBar = document.getElementById("progressBar");
+      const resultado = document.getElementById("resultadoCargaExcel");
+      const tablaErroresContainer = document.getElementById("tablaErroresContainer");
+      const tablaErroresExcel = document.getElementById("tablaErroresExcel");
+
+      progressContainer.classList.remove("d-none");
+      resultado.classList.add("d-none");
+      tablaErroresContainer.classList.add("d-none");
+      tablaErroresExcel.innerHTML = "";
+      resultado.textContent = "";
+      progressBar.style.width = "0%";
+      progressBar.textContent = "0%";
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/cargar-estudiantes-excel", true);
+
+      xhr.upload.addEventListener("progress", function(e) {
+        if (e.lengthComputable) {
+          const porcentaje = Math.round((e.loaded / e.total) * 100);
+          progressBar.style.width = porcentaje + "%";
+          progressBar.textContent = porcentaje + "%";
         }
-      })
-      .catch(err => alert("Error al conectar con el servidor: " + err));
+      });
+
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText);
+
+          if (data.success) {
+            progressBar.style.width = "100%";
+            progressBar.textContent = "100%";
+
+            resultado.classList.remove("d-none");
+            resultado.className = "alert alert-success mt-3";
+            resultado.innerHTML = `
+              Insertados: <strong>${data.insertados}</strong><br>
+              Actualizados: <strong>${data.actualizados}</strong><br>
+              Errores: <strong>${data.errores.length}</strong><br>
+              Total procesados: <strong>${data.total}</strong>
+            `;
+
+            if (data.errores && data.errores.length > 0) {
+              tablaErroresContainer.classList.remove("d-none");
+
+              data.errores.forEach(err => {
+                const fila = document.createElement("tr");
+                fila.innerHTML = `
+                  <td>${err.matricula || "-"}</td>
+                  <td>${err.error || "Error desconocido"}</td>
+                `;
+                tablaErroresExcel.appendChild(fila);
+              });
+            }
+
+            cargarEstudiantes();
+
+            setTimeout(() => {
+              bootstrap.Modal.getInstance(document.getElementById("excelModal")).hide();
+              document.getElementById("formExcel").reset();
+              progressContainer.classList.add("d-none");
+              resultado.classList.add("d-none");
+              tablaErroresContainer.classList.add("d-none");
+              tablaErroresExcel.innerHTML = "";
+              progressBar.style.width = "0%";
+              progressBar.textContent = "0%";
+            }, 3500);
+          } else {
+            resultado.classList.remove("d-none");
+            resultado.className = "alert alert-danger mt-3";
+            resultado.textContent = "Error: " + data.message;
+          }
+        } else {
+          resultado.classList.remove("d-none");
+          resultado.className = "alert alert-danger mt-3";
+          resultado.textContent = "Error al subir el archivo.";
+        }
+      };
+
+      xhr.onerror = function() {
+        resultado.classList.remove("d-none");
+        resultado.className = "alert alert-danger mt-3";
+        resultado.textContent = "No se pudo conectar con el servidor.";
+      };
+
+      xhr.send(formData);
     });
 
     document.getElementById("formMasterLogin").addEventListener("submit", function(e) {
@@ -445,12 +580,12 @@
           bootstrap.Modal.getInstance(document.getElementById("masterLoginModal")).hide();
           new bootstrap.Modal(document.getElementById("resetModal")).show();
         } else {
-          alert("Credenciales incorrectas");
+          mostrarError("❌ Credenciales incorrectas.");
         }
       })
       .catch(err => {
         console.error("Error de conexión:", err);
-        alert("Error al conectar con el servidor.");
+        mostrarError("❌ Error al conectar con el servidor.");
       });
     });
 
@@ -458,8 +593,14 @@
       if (confirm("¿Seguro que deseas borrar TODAS las asistencias de alumnos?")) {
         fetch("/api/reset-asistencias-alumnos", { method: "DELETE" })
           .then(res => res.json())
-          .then(data => alert(data.message))
-          .catch(err => alert("Error al conectar con el servidor: " + err));
+          .then(data => {
+            if (data.success) {
+              mostrarExito("✅ " + data.message);
+            } else {
+              mostrarError("❌ " + (data.message || "No se pudo completar la operación."));
+            }
+          })
+          .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
       }
     });
 
@@ -467,8 +608,14 @@
       if (confirm("¿Seguro que deseas borrar TODAS las asistencias de personal?")) {
         fetch("/api/reset-asistencias-personal", { method: "DELETE" })
           .then(res => res.json())
-          .then(data => alert(data.message))
-          .catch(err => alert("Error al conectar con el servidor: " + err));
+          .then(data => {
+            if (data.success) {
+              mostrarExito("✅ " + data.message);
+            } else {
+              mostrarError("❌ " + (data.message || "No se pudo completar la operación."));
+            }
+          })
+          .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
       }
     });
 
@@ -478,13 +625,13 @@
           .then(res => res.json())
           .then(data => {
             if (data.success) {
-              alert(data.message);
+              mostrarExito("✅ " + data.message);
               cargarEstudiantes();
             } else {
-              alert("Error: " + data.message);
+              mostrarError("❌ " + (data.message || "No se pudo completar la operación."));
             }
           })
-          .catch(err => alert("Error al conectar con el servidor: " + err));
+          .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
       }
     });
 
@@ -501,14 +648,14 @@
         .then(res => res.json())
         .then(data => {
           if (data.success) {
-            alert(data.message);
+            mostrarExito("✅ " + data.message);
             cargarEstudiantes();
             bootstrap.Modal.getInstance(document.getElementById("gradoModal")).hide();
           } else {
-            alert("Error: " + data.message);
+            mostrarError("❌ " + (data.message || "No se pudo actualizar el grado."));
           }
         })
-        .catch(err => alert("Error al conectar con el servidor: " + err));
+        .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
       }
     });
   </script>

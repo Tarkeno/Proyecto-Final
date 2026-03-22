@@ -21,26 +21,31 @@
   </header>
 
   <div id="titulo2">
-    <h2>PANEL ADMINISTRACIÓN</h2>
+    <h2>PANEL ADMINISTRATIVO</h2>
   </div>
 
-  <main class="d-flex" style="height:100vh;">
+  <main class="d-flex">
     <nav class="panel_lateral" style="width:250px;">
       <aside>
         <div class="list-group">
+          <a href="/panel-inicio" class="list-group-item list-group-item-action">
+                     <i class="fa-solid fa-house me-2"></i> Inicio
+                    </a>
           <a href="/historial" class="list-group-item list-group-item-action"><i class="fa-solid fa-file-lines me-2"></i> Historial</a>
           <a href="/estudiantes" class="list-group-item list-group-item-action"><i class="fa-solid fa-user-graduate me-2"></i> Estudiantes</a>
-          <a href="/docentes" class="list-group-item list-group-item-action"><i class="fa-solid fa-chalkboard-user me-2"></i> Personal</a>
+          <a href="/docentes" class="list-group-item list-group-item-action active"><i class="fa-solid fa-chalkboard-user me-2"></i> Personal</a>
           <a href="/reportes" class="list-group-item list-group-item-action"><i class="fa-solid fa-chart-line me-2"></i> Reportes</a>
           <a href="/agregar" class="list-group-item list-group-item-action"><i class="fa-solid fa-plus me-2"></i> Agregar Estudiante</a>
           <a href="/agregar-personal" class="list-group-item list-group-item-action"><i class="fa-solid fa-plus me-2"></i> Agregar Personal</a>
           <a href="/verificacion" class="list-group-item list-group-item-action"><i class="fa-solid fa-check me-2"></i> Verificación</a>
-          <a href="/login" class="list-group-item list-group-item-action"><i class="fa-solid fa-sign-out-alt me-2"></i> Salir</a>
+          <a href="#" class="list-group-item list-group-item-action" onclick="confirmarSalida(event)">
+                        <i class="fa-solid fa-sign-out-alt me-2"></i> Salir
+                    </a>
         </div>
       </aside>
     </nav>
 
-    <section class="p-4 d-flex justify-content-center">
+    <section class="p-4 d-flex justify-content-center w-100">
       <div class="card shadow-sm w-100" style="max-width: 600px;">
         <div class="card-body text-center">
           <h2 class="mb-4">Fecha y Tipo de Reporte</h2>
@@ -87,6 +92,13 @@
   </main>
 
   <script>
+     function confirmarSalida(e) {
+            e.preventDefault();
+            if (confirm("¿Estás seguro que deseas salir?")) {
+                window.location.href = "/login";
+            }
+        }
+
     let params = new URLSearchParams(window.location.search);
     let clave = params.get("clave") || localStorage.getItem("clave");
 
