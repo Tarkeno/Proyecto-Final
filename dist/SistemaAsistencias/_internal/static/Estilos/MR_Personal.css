@@ -1,0 +1,42 @@
+  body, html {
+      margin: 0;
+      padding: 0;
+    }
+
+    #titulo2, #titulo2 h2 {
+      background-color: rgb(91, 13, 13);
+      color: rgb(250, 240, 255);
+      padding: 10px;
+      margin-bottom: 0;
+    }
+
+    .acciones-superior {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 20px;
+    }
+
+    .acciones-superior .btn {
+      min-width: 120px;
+    }
+
+    .busqueda {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 20px 20px 20px;
+    }
+
+    .tabla-edicion {
+      margin: 0 20px;
+    }
+
+    th {
+      background-color: rgb(171, 15, 57);
+      color: white;
+    }
+
+    select.form-select {
+      min-width: 150px;
+    }

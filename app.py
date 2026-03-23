@@ -32,6 +32,168 @@ app.secret_key = "cecyteh_verificacion_2026"
 def acceso_verificacion():
     return render_template("acceso_verificacion.html")
 
+def obtener_mensajes_telegram():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        mensajes = []
+
+        if data.get("ok"):
+            for item in data.get("result", []):
+                if "message" in item:
+                    mensaje = item["message"]
+
+                    chat_id = mensaje["chat"]["id"]
+                    texto = mensaje.get("text", "").strip()
+
+                    mensajes.append({
+                        "chat_id": str(chat_id),
+                        "texto": texto
+                    })
+
+        return mensajes
+
+    except Exception as e:
+        print("Error al obtener mensajes:", e)
+        return []
+
+@app.route("/api/chat_ids", methods=["GET"])
+def api_chat_ids():
+    mensajes = obtener_mensajes_telegram()
+    return jsonify({
+        "success": True,
+        "datos": mensajes
+    }), 200
+
+@app.route("/api/sincronizar-chat-ids", methods=["GET", "POST"])
+def api_sincronizar_chat_ids():
+    resultado = sincronizar_chat_ids_telegram()
+    return jsonify(resultado), 200
+
+
+def sincronizar_chat_ids_telegram():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+
+        # Obtener último update_id guardado
+        cursor.execute("SELECT ultimo_update_id FROM telegram_control LIMIT 1")
+        ultimo_update_id = cursor.fetchone()[0]
+
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        actualizados = 0
+        nuevo_update_id = ultimo_update_id
+
+        if data.get("ok"):
+            for item in data.get("result", []):
+                update_id = item["update_id"]
+
+                # Ignorar mensajes ya procesados
+                if update_id <= ultimo_update_id:
+                    continue
+
+                mensaje = item.get("message", {})
+                chat_id = mensaje.get("chat", {}).get("id")
+                texto = mensaje.get("text", "").strip()
+
+                partes = texto.split()
+
+                # 🔹 CASO 1: SOLO /start → BIENVENIDA
+                if texto.lower() == "/start":
+                    enviar_mensaje_telegram(
+                        chat_id,
+                        "👋 Bienvenido al sistema de asistencias.\n\nPor favor, ingresa la matrícula del estudiante usando este formato:\n/start NUMERO_MATRICULA"
+                    )
+
+                # 🔹 CASO 2: /start MATRICULA
+                elif len(partes) >= 2 and partes[0].lower() == "/start":
+                    matricula = partes[1].strip()
+
+                    cursor.execute("""
+                        SELECT nombre, apellido_paterno, apellido_materno
+                        FROM estudiantes
+                        WHERE matricula = %s
+                    """, (matricula,))
+                    alumno = cursor.fetchone()
+
+                    if alumno:
+                        nombre = alumno[0]
+                        apellido_paterno = alumno[1]
+                        apellido_materno = alumno[2]
+
+                        cursor.execute("""
+                            UPDATE estudiantes
+                            SET chat_id_telegram = %s
+                            WHERE matricula = %s
+                        """, (str(chat_id), matricula))
+
+                        actualizados += 1
+
+                        enviar_mensaje_telegram(
+                            chat_id,
+                            f"✅ Hola {nombre} {apellido_paterno} {apellido_materno}, tu matrícula {matricula} ha sido vinculada a este chat."
+                        )
+                    else:
+                        enviar_mensaje_telegram(
+                            chat_id,
+                            f"❌ No se encontró la matrícula {matricula} en el sistema."
+                        )
+
+                # 🔹 CASO 3: CUALQUIER OTRA COSA
+                else:
+                    enviar_mensaje_telegram(
+                        chat_id,
+                        "⚠️ Formato incorrecto. Usa: /start TU_MATRICULA"
+                    )
+
+                # Guardar el update_id más alto
+                if update_id > nuevo_update_id:
+                    nuevo_update_id = update_id
+
+        # Actualizar el último update_id en BD
+        cursor.execute("""
+            UPDATE telegram_control
+            SET ultimo_update_id = %s
+        """, (nuevo_update_id,))
+
+        conexion.commit()
+        cursor.close()
+        conexion.close()
+
+        return {
+            "success": True,
+            "actualizados": actualizados
+        }
+
+    except Exception as e:
+        print("Error:", e)
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+
+def enviar_mensaje_telegram(chat_id, texto):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    payload = {
+        "chat_id": chat_id,
+        "text": texto
+    }
+
+    try:
+        response = requests.post(url, data=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        print("Error al enviar mensaje por Telegram:", e)
+        return None
 
 @app.route("/api/login-verificacion", methods=["POST"])
 def login_verificacion():
@@ -580,7 +742,27 @@ def generar_inasistencias():
 
     try:
         # =========================
-        # INASISTENCIAS ALUMNOS
+        # OBTENER ALUMNOS QUE QUEDARÁN CON INASISTENCIA
+        # =========================
+        cur.execute("""
+            SELECT 
+                e.matricula,
+                e.nombre,
+                e.apellido_paterno,
+                e.apellido_materno,
+                e.chat_id_telegram
+            FROM estudiantes e
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM asistencias a
+                WHERE a.matricula = e.matricula
+                  AND a.fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+            )
+        """)
+        alumnos_faltantes = cur.fetchall()
+
+        # =========================
+        # INSERTAR INASISTENCIAS ALUMNOS
         # =========================
         cur.execute("""
             INSERT INTO asistencias (
@@ -605,7 +787,27 @@ def generar_inasistencias():
         alumnos_insertados = cur.rowcount
 
         # =========================
-        # INASISTENCIAS PERSONAL
+        # OBTENER PERSONAL QUE QUEDARÁ CON INASISTENCIA
+        # =========================
+        cur.execute("""
+            SELECT 
+                p.id,
+                p.clave,
+                p.nombre,
+                p.apellido_paterno,
+                p.apellido_materno
+            FROM personal p
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM asistencias_personal ap
+                WHERE ap.personal_id = p.id
+                  AND ap.fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+            )
+        """)
+        personal_faltante = cur.fetchall()
+
+        # =========================
+        # INSERTAR INASISTENCIAS PERSONAL
         # =========================
         cur.execute("""
             INSERT INTO asistencias_personal (
@@ -630,6 +832,28 @@ def generar_inasistencias():
         personal_insertado = cur.rowcount
 
         conn.commit()
+
+        # =========================
+        # ENVIAR MENSAJES TELEGRAM A TUTORES DE ALUMNOS
+        # =========================
+        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
+
+        for alumno in alumnos_faltantes:
+            matricula = alumno[0]
+            nombre = alumno[1]
+            apellido_paterno = alumno[2]
+            apellido_materno = alumno[3]
+            chat_id = alumno[4]
+
+            if chat_id:
+                enviar_mensaje_telegram(
+                    chat_id,
+                    f"⚠️ Inasistencia detectada\n\n"
+                    f"Alumno: {nombre} {apellido_paterno} {apellido_materno}\n"
+                    f"Matrícula: {matricula}\n"
+                    f"Fecha: {fecha_hoy}\n\n"
+                    f"No se registró asistencia en el sistema."
+                )
 
         return jsonify({
             "success": True,

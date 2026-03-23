@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reporte de Inasistencias</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='Estilos/GR_E_Inasistencias.css') }}" />
+</head>
+<body>
+  <header>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
+      <div class="container-fluid">
+        <a class="navbar-brand d-flex align-items-center" href="#">
+          <img src="{{ url_for('static', filename='Images/cecyteh_horizontal.png') }}" alt="Logo" width="200" class="me-2" />
+        </a>
+        <h1 class="Titulo">Colegio de Estudios Científicos y Tecnológicos del Estado de Hidalgo</h1>
+      </div>
+    </nav>
+  </header>
+
+  <div id="titulo2">
+    <h2>INASISTENCIAS DE ESTUDIANTES</h2>
+  </div>
+
+  <div class="acciones">
+    <div>
+      <button onclick="imprimirSoloTabla()" class="btn btn-outline-dark">
+  <i class="fa-solid fa-print"></i> Imprimir
+</button>
+      <button onclick="guardarReporte()" class="btn btn-outline-success">
+        <i class="fa-solid fa-floppy-disk"></i> Guardar
+      </button>
+    </div>
+    <a href="/reporte-estudiantes" class="btn btn-secondary volver-btn">
+      <i class="fa-solid fa-arrow-left"></i> Volver
+    </a>
+  </div>
+
+  <div id="solo-tabla" class="tabla-reporte">
+    <table class="table table-bordered table-striped">
+      <thead>
+        <tr>
+          <th>Matricula</th>
+          <th>Nombre</th>
+          <th>Apellido Paterno</th>
+          <th>Apellido Materno</th>
+          <th>Carrera</th>
+          <th>Semestre</th>
+          <th>Grupo</th>
+          <th>Fecha</th>
+          <th>Inasistencia</th>
+        </tr>
+      </thead>
+      <tbody id="tabla-inasistencias-estudiantes">
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    function guardarReporte() {
+      alert("Función de guardar aún no implementada. Puedes exportar como PDF desde el navegador.");
+    }
+
+    function imprimirSoloTabla() {
+  const tabla = document.getElementById("solo-tabla");
+
+  if (!tabla) {
+    alert("No se encontró la tabla para imprimir.");
+    return;
+  }
+
+  const contenido = tabla.innerHTML;
+
+  const ventana = window.open("", "_blank", "width=1100,height=700");
+
+  ventana.document.write(`
+    <html>
+      <head>
+        <title>Reporte</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            color: #000;
+          }
+
+          h2 {
+            text-align: center;
+            margin-bottom: 20px;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+          }
+
+          th, td {
+            border: 1px solid #000;
+            padding: 6px;
+            text-align: center;
+          }
+
+          th {
+            background: #f2f2f2;
+          }
+        </style>
+      </head>
+      <body>
+        ${contenido}
+      </body>
+    </html>
+  `);
+
+  ventana.document.close();
+  ventana.focus();
+
+  setTimeout(() => {
+    ventana.print();
+    ventana.close();
+  }, 500);
+}
+
+    const params = new URLSearchParams(window.location.search);
+    const inicio = params.get("inicio");
+    const fin = params.get("fin");
+    const matricula = params.get("matricula");
+
+    fetch(`/api/reporte?matricula=${encodeURIComponent(matricula || "")}&inicio=${encodeURIComponent(inicio || "")}&fin=${encodeURIComponent(fin || "")}&tipo=inasistencias`)
+      .then(res => res.json())
+      .then(data => {
+        const tbody = document.getElementById("tabla-inasistencias-estudiantes");
+        tbody.innerHTML = "";
+
+        if (Array.isArray(data)) {
+          data.forEach(registro => {
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+              <td>${registro.matricula}</td>
+              <td>${registro.nombre}</td>
+              <td>${registro.apellido_paterno}</td>
+              <td>${registro.apellido_materno}</td>
+              <td>${registro.carrera}</td>
+              <td>${registro.semestre}</td>
+              <td>${registro.grupo}</td>
+              <td>${registro.fecha}</td>
+              <td>❌</td>
+            `;
+            tbody.appendChild(fila);
+          });
+        } else {
+          alert(data.message || data.error || "No se encontraron registros.");
+        }
+      })
+      .catch(error => {
+        console.error("Error al generar reporte:", error);
+        alert("Error al conectar con el servidor.");
+      });
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

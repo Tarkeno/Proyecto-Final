@@ -1,0 +1,94 @@
+body, html {
+      margin: 0;
+      padding: 0;
+    }
+    .Titulo {
+  text-align: center;
+  margin: 0 auto;
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+    #titulo2, #titulo2 h2 {
+      background-color: rgb(91, 13, 13);
+      color: rgb(255, 255, 255);
+      margin-bottom: 0;
+      padding: 10px;
+    }
+
+    .acciones {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 20px;
+    }
+
+    .acciones .btn {
+      margin-right: 10px;
+    }
+
+    .tabla-reporte {
+      margin: 0 20px;
+    }
+
+    table {
+      width: 100%;
+    }
+
+    th {
+      background-color: rgb(171, 15, 57);
+      color: white;
+    }
+
+    .volver-btn {
+      margin-left: auto;
+    }
+
+    @media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #solo-tabla,
+  #solo-tabla * {
+    visibility: visible !important;
+  }
+
+  #solo-tabla {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+
+  header,
+  #titulo2,
+  .acciones,
+  .volver-btn {
+    display: none !important;
+  }
+
+  .tabla-reporte {
+    margin: 0 !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 12px;
+  }
+
+  th, td {
+    border: 1px solid #000 !important;
+    padding: 6px !important;
+    color: #000 !important;
+  }
+
+  th {
+    background: #fff !important;
+  }
+}
