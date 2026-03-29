@@ -1,11 +1,31 @@
+import os
+import sys
 import threading
 import webbrowser
-from waitress import serve
-from app import app  # cambia "app" si tu archivo principal tiene otro nombre
+from app import app
+
+def ruta_ejecutable(nombre_archivo):
+    if getattr(sys, "frozen", False):
+        base_path = os.path.dirname(sys.executable)
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, nombre_archivo)
 
 def abrir_navegador():
-    webbrowser.open("http://127.0.0.1:8080/login")
+    webbrowser.open("https://127.0.0.1:5000/login")
 
 if __name__ == "__main__":
+    cert_path = ruta_ejecutable("cert.pem")
+    key_path = ruta_ejecutable("key.pem")
+
+    if not os.path.exists(cert_path) or not os.path.exists(key_path):
+        raise FileNotFoundError("No se encontraron cert.pem y key.pem junto al ejecutable.")
+
     threading.Timer(1.5, abrir_navegador).start()
-    serve(app, host="0.0.0.0", port=8080)
+
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False,
+        ssl_context=(cert_path, key_path)
+    )

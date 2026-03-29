@@ -10,6 +10,8 @@ from datetime import datetime
 from functools import wraps
 import threading
 import time
+import os
+import sys
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
@@ -17,16 +19,28 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet
 
 
-app = Flask(__name__)
+def ruta_recurso(relativa):
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relativa)
+
+app = Flask(
+    __name__,
+    template_folder=ruta_recurso("templates"),
+    static_folder=ruta_recurso("static")
+)
+
 CORS(app)
+app.secret_key = "cecyteh_verificacion_2026"
 
 #Telegram
 BOT_TOKEN = "8662204262:AAHxsA-KeSvid-xaJ3LPWE6Vw1W3Mt2mTJc"
 CHAT_ID_ADMIN = "8767812052"
-
 #CHAT_ID_TUTOR_PRUEBA = "1333201682"
 
-# Conexión a la base de datos
+#Conexión a la base de datos
 def conectar_bd():
     return psycopg2.connect(
         host="localhost",
@@ -34,9 +48,6 @@ def conectar_bd():
         user="postgres",
         password="12345"
     )
-
-app.secret_key = "cecyteh_verificacion_2026"
-
 
 @app.route("/api/reporte_personal/pdf", methods=["GET"])
 def exportar_reporte_personal_pdf():
@@ -3517,6 +3528,6 @@ if __name__ == '__main__':
         host="0.0.0.0",
         port=5000,
         debug=True,
-        ssl_context=("192.168.0.3+2.pem", "192.168.0.3+2-key.pem")
+        ssl_context=("cert.pem", "key.pem")
     )
 
