@@ -46,6 +46,8 @@
         <div class="card-body">
           <h4 class="card-title mb-4">Información del estudiante</h4>
 
+          <div id="mensaje" class="alert d-none mb-3" role="alert"></div>
+
           <div class="mb-3">
             <label for="matricula" class="form-label">
               <i class="fa-solid fa-user me-2"></i> Matrícula del estudiante:
@@ -60,12 +62,23 @@
   </main>
 
   <script>
+    function mostrarMensaje(texto, tipo = "success") {
+      const div = document.getElementById("mensaje");
+      div.className = `alert alert-${tipo} mb-3`;
+      div.textContent = texto;
+      div.classList.remove("d-none");
+
+      setTimeout(() => {
+        div.classList.add("d-none");
+      }, 3000);
+    }
+
     document.getElementById("buscar-btn").addEventListener("click", function (e) {
       e.preventDefault();
       const matricula = document.getElementById("matricula").value.trim();
 
       if (!matricula) {
-        alert("Por favor ingrese una matrícula.");
+        mostrarMensaje("Por favor ingrese una matrícula.", "warning");
         return;
       }
 
@@ -77,7 +90,7 @@
       .then(response => response.json())
       .then(data => {
         if (data.error) {
-          alert("Estudiante no encontrado");
+          mostrarMensaje("Estudiante no encontrado.", "danger");
         } else {
           localStorage.setItem("estudiante", JSON.stringify(data));
           window.location.href = "/informacion-estudiante";
@@ -85,7 +98,7 @@
       })
       .catch(error => {
         console.error("Error al buscar estudiante:", error);
-        alert("Error al conectar con el servidor.");
+        mostrarMensaje("Error al conectar con el servidor.", "danger");
       });
     });
 

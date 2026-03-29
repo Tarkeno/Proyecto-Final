@@ -64,6 +64,8 @@
                 <div class="card-body">
                     <h2 class="mb-4 text-center">Fecha y Tipo de Reporte</h2>
 
+                    <div id="mensaje" class="alert d-none mb-3" role="alert"></div>
+
                     <label for="Fecha_Inicio" class="form-label">Fecha Inicio:</label>
                     <input type="date" id="Fecha_Inicio" name="Fecha_Inicio" class="form-control mb-3">
 
@@ -133,6 +135,17 @@
         const comunidad = document.getElementById("comunidad");
         const camposEstudiante = document.getElementById("camposEstudiante");
 
+        function mostrarMensaje(texto, tipo = "success") {
+            const div = document.getElementById("mensaje");
+            div.className = `alert alert-${tipo} mb-3`;
+            div.textContent = texto;
+            div.classList.remove("d-none");
+
+            setTimeout(() => {
+                div.classList.add("d-none");
+            }, 3500);
+        }
+
         comunidad.addEventListener("change", function () {
             camposEstudiante.style.display = this.value === "estudiantes" ? "block" : "none";
         });
@@ -144,12 +157,12 @@
             const fechaFin = document.getElementById("Fecha_Fin").value;
 
             if (!seleccion || !reporte || !fechaInicio || !fechaFin) {
-                alert("Completa todos los campos requeridos.");
+                mostrarMensaje("Completa todos los campos requeridos.", "warning");
                 return;
             }
 
             if (fechaFin < fechaInicio) {
-                alert("La fecha final no puede ser anterior a la fecha de inicio.");
+                mostrarMensaje("La fecha final no puede ser anterior a la fecha de inicio.", "danger");
                 return;
             }
 
@@ -161,7 +174,7 @@
                 const grupo = document.getElementById("Grupo").value;
 
                 if (!carrera || !semestre || !grupo) {
-                    alert("Completa todos los campos de estudiante.");
+                    mostrarMensaje("Completa todos los campos de estudiante.", "warning");
                     return;
                 }
 
@@ -200,7 +213,7 @@
                 }
             }
 
-            alert("No se encontró una ruta para ese tipo de reporte.");
+            mostrarMensaje("No se encontró una ruta para ese tipo de reporte.", "danger");
         }
 
         function confirmarSalida(e) {

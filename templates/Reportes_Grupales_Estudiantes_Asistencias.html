@@ -62,13 +62,15 @@
 
 <script>
 function cargarAsistenciasEstudiantes() {
-
   const params = new URLSearchParams(window.location.search);
   const inicio = params.get("inicio");
   const fin = params.get("fin");
+  const carrera = params.get("carrera");
+  const semestre = params.get("semestre");
+  const grupo = params.get("grupo");
 
-  if (!inicio || !fin) {
-    alert("No se recibieron fechas.");
+  if (!inicio || !fin || !carrera || !semestre || !grupo) {
+    alert("Faltan parámetros para generar el reporte.");
     return;
   }
 
@@ -106,8 +108,12 @@ function cargarAsistenciasEstudiantes() {
         `;
         tbody.appendChild(fila);
       });
+
+      if (data.resultados.length === 0) {
+        alert("No se encontraron registros para esos filtros.");
+      }
     } else {
-      alert(data.message);
+      alert(data.message || "No se encontraron registros.");
     }
   })
   .catch(err => {
@@ -117,7 +123,16 @@ function cargarAsistenciasEstudiantes() {
 }
 
 function guardarReporte() {
-  alert("Puedes usar imprimir → guardar como PDF 👍");
+  const params = new URLSearchParams(window.location.search);
+  const inicio = params.get("inicio") || "";
+  const fin = params.get("fin") || "";
+  const carrera = params.get("carrera") || "";
+  const semestre = params.get("semestre") || "";
+  const grupo = params.get("grupo") || "";
+
+  const url = `/api/reporte_grupal_estudiantes/pdf?tipo=asistencias&inicio=${encodeURIComponent(inicio)}&fin=${encodeURIComponent(fin)}&carrera=${encodeURIComponent(carrera)}&semestre=${encodeURIComponent(semestre)}&grupo=${encodeURIComponent(grupo)}`;
+
+  window.open(url, "_blank");
 }
 
 function imprimirSoloTabla() {

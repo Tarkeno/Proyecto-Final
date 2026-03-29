@@ -61,8 +61,19 @@
 
   <script>
     function guardarReporte() {
-      alert("Función de guardar aún no implementada. Puedes exportar como PDF desde el navegador.");
-    }
+  const params = new URLSearchParams(window.location.search);
+  const inicio = params.get("inicio") || "";
+  const fin = params.get("fin") || "";
+  const clave = params.get("clave") || "";
+
+  let url = `/api/reporte_personal/pdf?tipo=general&inicio=${encodeURIComponent(inicio)}&fin=${encodeURIComponent(fin)}`;
+
+  if (clave) {
+    url += `&clave=${encodeURIComponent(clave)}`;
+  }
+
+  window.open(url, "_blank");
+}
     function imprimirSoloTabla() {
   const tabla = document.getElementById("solo-tabla");
 

@@ -22,81 +22,99 @@
   <div id="resultado" class="mt-4"></div>
 
   <script src="https://unpkg.com/html5-qrcode"></script>
-  <script>
-    let ultimoCodigo = null;
-    let ultimoTiempo = 0;
+<script>
+  let ultimoCodigo = null;
+  let ultimoTiempo = 0;
+  let procesando = false;
 
-    function onScanSuccess(decodedText) {
-      const ahora = Date.now();
+  function mostrarResultado(html) {
+    const resultado = document.getElementById("resultado");
+    resultado.innerHTML = html;
 
-      if (decodedText === ultimoCodigo && (ahora - ultimoTiempo) < 3000) {
-        return;
-      }
+    setTimeout(() => {
+      resultado.innerHTML = "";
+    }, 2500);
+  }
 
-      ultimoCodigo = decodedText;
-      ultimoTiempo = ahora;
+  function onScanSuccess(decodedText) {
+    const ahora = Date.now();
 
-      document.getElementById("resultado").innerHTML =
-        `<div class="alert alert-info">Código leído: ${decodedText}</div>`;
+    if (procesando) return;
 
-      let codigo = decodedText;
-
-      if (codigo.includes("codigo_qr=")) {
-        const partes = decodedText.split("?");
-        if (partes.length > 1) {
-          const urlParams = new URLSearchParams(partes[1]);
-          codigo = urlParams.get("codigo_qr");
-        }
-      }
-
-      fetch("/api/registrar-asistencia", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codigo_qr: codigo })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          document.getElementById("resultado").innerHTML = `
-            <div class="card shadow-lg mt-4" style="max-width: 500px; margin:auto;">
-              <div class="card-body text-center">
-                <h4 class="card-title text-success">${data.message}</h4>
-                <p class="card-text">
-                  <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
-                  <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
-                  <strong>Estado:</strong> ${data.estado || "Asistencia"} <br>
-                  <strong>Fecha:</strong> ${new Date().toLocaleString()}
-                </p>
-              </div>
-            </div>
-          `;
-        } else {
-          document.getElementById("resultado").innerHTML = `
-            <div class="card shadow-lg mt-4 border-warning" style="max-width: 500px; margin:auto;">
-              <div class="card-body text-center">
-                <h4 class="card-title text-warning">${data.message}</h4>
-                <p class="card-text">
-                  <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
-                  <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
-                  <strong>Estado:</strong> ${data.estado || "N/A"} <br>
-                  <strong>Fecha:</strong> ${new Date().toLocaleString()}
-                </p>
-              </div>
-            </div>
-          `;
-        }
-      })
-      .catch(err => {
-        console.error(err);
-        document.getElementById("resultado").innerHTML =
-          `<div class="alert alert-danger mt-4">🚨 Error al conectar con el servidor</div>`;
-      });
+    if (decodedText === ultimoCodigo && (ahora - ultimoTiempo) < 3000) {
+      return;
     }
 
-    new Html5QrcodeScanner("reader", {
-      fps: 10,
-      qrbox: 250
-    }).render(onScanSuccess);
-  </script>
+    ultimoCodigo = decodedText;
+    ultimoTiempo = ahora;
+    procesando = true;
+
+    let codigo = decodedText;
+
+    if (codigo.includes("codigo_qr=")) {
+      const partes = decodedText.split("?");
+      if (partes.length > 1) {
+        const urlParams = new URLSearchParams(partes[1]);
+        codigo = urlParams.get("codigo_qr");
+      }
+    }
+
+    fetch("/api/registrar-asistencia", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codigo_qr: codigo })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        mostrarResultado(`
+          <div class="card shadow-lg mt-4" style="max-width: 500px; margin:auto;">
+            <div class="card-body text-center">
+              <h4 class="card-title text-success">${data.message}</h4>
+              <p class="card-text">
+                <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
+                <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
+                <strong>Estado:</strong> ${data.estado || "Asistencia"} <br>
+                <strong>Fecha:</strong> ${new Date().toLocaleString()}
+              </p>
+            </div>
+          </div>
+        `);
+      } else {
+        mostrarResultado(`
+          <div class="card shadow-lg mt-4 border-warning" style="max-width: 500px; margin:auto;">
+            <div class="card-body text-center">
+              <h4 class="card-title text-warning">${data.message}</h4>
+              <p class="card-text">
+                <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
+                <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
+                <strong>Estado:</strong> ${data.estado || "N/A"} <br>
+                <strong>Fecha:</strong> ${new Date().toLocaleString()}
+              </p>
+            </div>
+          </div>
+        `);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      mostrarResultado(`
+        <div class="alert alert-danger mt-4">
+          🚨 Error al conectar con el servidor
+        </div>
+      `);
+    })
+    .finally(() => {
+      setTimeout(() => {
+        procesando = false;
+      }, 1500);
+    });
+  }
+
+  new Html5QrcodeScanner("reader", {
+    fps: 10,
+    qrbox: 250
+  }).render(onScanSuccess);
+</script>
 </body>
 </html>

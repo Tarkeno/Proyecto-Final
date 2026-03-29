@@ -24,36 +24,36 @@
     <h2>REPORTE DE DOCENTES - ASISTENCIAS</h2>
   </div>
 
-  <div id="solo-tabla" class="acciones">
-    <div>
-      <button onclick="imprimirSoloTabla()" class="btn btn-outline-dark">
-        <i class="fa-solid fa-print"></i> Imprimir
-      </button>
-      <button onclick="guardarReporte()" class="btn btn-outline-success">
-        <i class="fa-solid fa-floppy-disk"></i> Guardar
-      </button>
-    </div>
-    <a href="/reportes" class="btn btn-secondary volver-btn">
-      <i class="fa-solid fa-arrow-left"></i> Volver
-    </a>
+ <div class="acciones">
+  <div>
+    <button onclick="imprimirSoloTabla()" class="btn btn-outline-dark">
+      <i class="fa-solid fa-print"></i> Imprimir
+    </button>
+    <button onclick="guardarReporte()" class="btn btn-outline-success">
+      <i class="fa-solid fa-floppy-disk"></i> Guardar
+    </button>
   </div>
+  <a href="/reportes" class="btn btn-secondary volver-btn">
+    <i class="fa-solid fa-arrow-left"></i> Volver
+  </a>
+</div>
 
-  <div id="solo-tabla" class="tabla-reporte">
-    <table class="table table-bordered table-striped" id="tablaDocentesAsistencias">
-      <thead>
-        <tr>
-          <th>Clave</th>
-          <th>Nombre</th>
-          <th>Apellido Paterno</th>
-          <th>Apellido Materno</th>
-          <th>Puesto</th>
-          <th>Fecha</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+<div id="solo-tabla" class="tabla-reporte">
+  <table class="table table-bordered table-striped" id="tablaDocentesAsistencias">
+    <thead>
+      <tr>
+        <th>Clave</th>
+        <th>Nombre</th>
+        <th>Apellido Paterno</th>
+        <th>Apellido Materno</th>
+        <th>Puesto</th>
+        <th>Fecha</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 
   <script>
     function cargarAsistenciasDocentes() {
@@ -106,8 +106,13 @@
     }
 
     function guardarReporte() {
-      alert("Puedes usar imprimir → guardar como PDF 👍");
-    }
+  const params = new URLSearchParams(window.location.search);
+  const inicio = params.get("inicio") || "";
+  const fin = params.get("fin") || "";
+
+  const url = `/api/reporte_grupal_docentes/pdf?tipo=asistencias&inicio=${encodeURIComponent(inicio)}&fin=${encodeURIComponent(fin)}`;
+  window.open(url, "_blank");
+}
 
     function imprimirSoloTabla() {
   const tabla = document.getElementById("solo-tabla");

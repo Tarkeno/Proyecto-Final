@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro de Asistencia</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .contenedor {
+            width: 100%;
+            max-width: 520px;
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            padding: 30px;
+            text-align: center;
+        }
+
+        .icono {
+            font-size: 60px;
+            margin-bottom: 15px;
+        }
+
+        .ok {
+            color: #198754;
+        }
+
+        .warn {
+            color: #fd7e14;
+        }
+
+        .error {
+            color: #dc3545;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 30px;
+        }
+
+        p {
+            margin: 10px 0;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .dato {
+            font-weight: bold;
+        }
+
+        .pie {
+            margin-top: 25px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .boton-regresar {
+            margin-top: 20px;
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 10px;
+            background-color: #0d6efd;
+            color: white;
+            cursor: pointer;
+        }
+
+        .boton-regresar:hover {
+            background-color: #0b5ed7;
+        }
+    </style>
+</head>
+<body>
+    <div class="contenedor">
+        <div class="icono {{ clase_icono }}">{{ icono }}</div>
+        <h1 class="{{ clase_icono }}">{{ titulo }}</h1>
+
+        <p><span class="dato">Nombre:</span> {{ nombre }}</p>
+
+        {% if matricula %}
+            <p><span class="dato">Matrícula:</span> {{ matricula }}</p>
+        {% endif %}
+
+        {% if clave %}
+            <p><span class="dato">Clave:</span> {{ clave }}</p>
+        {% endif %}
+
+        <p><span class="dato">Estado:</span> {{ estado }}</p>
+        <p><span class="dato">Fecha y hora:</span> {{ fecha_hora }}</p>
+
+        <div class="pie">Si no regresa automáticamente, usa el botón de abajo.</div>
+
+        <button class="boton-regresar" onclick="regresarAlEscaner()">
+            Regresar al escáner
+        </button>
+    </div>
+
+    <script>
+        function regresarAlEscaner() {
+            if (window.history.length > 1) {
+                window.history.back();
+            }
+        }
+
+        setTimeout(() => {
+            regresarAlEscaner();
+        }, 2500);
+    </script>
+</body>
+</html>

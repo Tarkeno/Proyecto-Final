@@ -89,18 +89,17 @@
             <div class="mt-4 text-end">
               <button type="submit" class="btn btn-primary">Guardar Alumno</button>
 
-              <button type="button" class="btn btn-info ms-2" id="btnSincronizarTelegram">
-  <i class="fa-brands fa-telegram me-2"></i> Sincronizar Telegram
-</button>
-              
+              <button type="button" class="btn btn-primary ms-2" id="btnSincronizarTelegram">
+                <i class="fa-brands fa-telegram me-2"></i> Sincronizar Telegram
+              </button>
             </div>
+
             <div class="mt-4 d-flex justify-content-between align-items-center">
               <input type="text" id="busqueda" class="form-control w-50" placeholder="Buscar por matrícula o nombre">
 
               <button class="btn btn-excel ms-2" data-bs-toggle="modal" data-bs-target="#excelModal" type="button">
                 <i class="fa-solid fa-file-excel me-2"></i> Cargar Excel Masivo
               </button>
-              
 
               <a href="{{ url_for('static', filename='Plantillas/plantilla_estudiantes.xlsx') }}"
                  class="btn btn-success ms-2" download>
@@ -665,21 +664,21 @@
     });
 
     document.getElementById("btnSincronizarTelegram").addEventListener("click", function () {
-  fetch("/api/sincronizar-chat-ids")
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        mostrarExito(`✅ Chat ID sincronizados correctamente. Actualizados: ${data.actualizados}`);
-        cargarEstudiantes();
-      } else {
-        mostrarError("❌ No se pudo sincronizar Telegram.");
-      }
-    })
-    .catch(err => {
-      console.error("Error al sincronizar Telegram:", err);
-      mostrarError("❌ Error al conectar con Telegram.");
+      fetch("/api/sincronizar-chat-ids")
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            mostrarExito(`✅ Chat ID sincronizados correctamente. Actualizados: ${data.actualizados}`);
+            cargarEstudiantes();
+          } else {
+            mostrarError("❌ No se pudo sincronizar Telegram.");
+          }
+        })
+        .catch(err => {
+          console.error("Error al sincronizar Telegram:", err);
+          mostrarError("❌ Error al conectar con Telegram.");
+        });
     });
-});
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>

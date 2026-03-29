@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, redirect,send_file
 from flask_cors import CORS 
 import psycopg2
 import pandas as pd
@@ -7,6 +7,15 @@ import qrcode
 import requests
 import bcrypt
 from datetime import datetime
+from functools import wraps
+import threading
+import time
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
 
 app = Flask(__name__)
 CORS(app)
@@ -28,6 +37,885 @@ def conectar_bd():
 
 app.secret_key = "cecyteh_verificacion_2026"
 
+
+@app.route("/api/reporte_personal/pdf", methods=["GET"])
+def exportar_reporte_personal_pdf():
+    clave = request.args.get("clave")
+    inicio = request.args.get("inicio")
+    fin = request.args.get("fin")
+    tipo = request.args.get("tipo")
+
+    if not inicio or not fin or not tipo:
+        return jsonify({"success": False, "message": "Faltan parámetros"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        if tipo == "general":
+            query = """
+                SELECT 
+                    p.clave,
+                    p.nombre,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.puesto,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Asistencia' THEN 1 END) AS asistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Inasistencia' THEN 1 END) AS inasistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Justificación' THEN 1 END) AS justificaciones
+                FROM personal p
+                LEFT JOIN asistencias_personal a 
+                    ON p.id = a.personal_id
+                    AND a.fecha >= %s
+                    AND a.fecha < %s::date + INTERVAL '1 day'
+            """
+            params = [inicio, fin]
+
+            if clave:
+                query += " WHERE p.clave = %s"
+                params.append(clave)
+
+            query += """
+                GROUP BY p.clave, p.nombre, p.apellido_paterno, p.apellido_materno, p.puesto
+                ORDER BY p.nombre
+            """
+
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            encabezados = [
+                "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                "Puesto", "Fecha Inicio", "Fecha Fin",
+                "Asistencias", "Inasistencias", "Justificaciones"
+            ]
+
+            filas = [
+                [
+                    str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]),
+                    str(inicio), str(fin), str(r[5]), str(r[6]), str(r[7])
+                ]
+                for r in resultados
+            ]
+
+            titulo = f"Reporte General del Personal ({inicio} a {fin})"
+            nombre_archivo = f"reporte_general_personal_{inicio}_a_{fin}.pdf"
+
+        else:
+            mapa_estados = {
+                "asistencias": "Asistencia",
+                "inasistencias": "Inasistencia",
+                "justificaciones": "Justificación"
+            }
+
+            if tipo not in mapa_estados:
+                return jsonify({"success": False, "message": "Tipo de reporte no válido"}), 400
+
+            estado = mapa_estados[tipo]
+
+            query = """
+                SELECT
+                    p.clave,
+                    p.nombre,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.puesto,
+                    a.fecha,
+                    a.estado_asistencia,
+                    a.motivo_justificacion
+                FROM asistencias_personal a
+                JOIN personal p ON a.personal_id = p.id
+                WHERE a.estado_asistencia = %s
+                  AND a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
+            """
+            params = [estado, inicio, fin]
+
+            if clave:
+                query += " AND p.clave = %s"
+                params.append(clave)
+
+            query += " ORDER BY a.fecha"
+
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            if tipo == "asistencias":
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Asistencia"
+                ]
+
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]),
+                        r[5].strftime("%Y-%m-%d") if r[5] else "",
+                        "✔"
+                    ]
+                    for r in resultados
+                ]
+
+            elif tipo == "inasistencias":
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Inasistencia"
+                ]
+
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]),
+                        r[5].strftime("%Y-%m-%d") if r[5] else "",
+                        "✘"
+                    ]
+                    for r in resultados
+                ]
+
+            else:  # justificaciones
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Motivo"
+                ]
+
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]),
+                        r[5].strftime("%Y-%m-%d") if r[5] else "",
+                        str(r[7]) if r[7] else ""
+                    ]
+                    for r in resultados
+                ]
+
+            titulo = f"Reporte de {estado} del Personal ({inicio} a {fin})"
+            nombre_archivo = f"reporte_{tipo}_personal_{inicio}_a_{fin}.pdf"
+
+        if not filas:
+            return jsonify({"success": False, "message": "No hay datos para exportar"}), 404
+
+        pdf_buffer = generar_pdf_tabla(titulo, encabezados, filas)
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=nombre_archivo,
+            mimetype="application/pdf"
+        )
+
+    except Exception as e:
+        print("Error al exportar PDF del personal:", e)
+        return jsonify({"success": False, "message": "Error al generar PDF"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/api/reporte_estudiantes/pdf", methods=["GET"])
+def exportar_reporte_estudiantes_pdf():
+    matricula = request.args.get("matricula")
+    inicio = request.args.get("inicio")
+    fin = request.args.get("fin")
+    tipo = request.args.get("tipo")
+
+    if not inicio or not fin or not tipo:
+        return jsonify({"success": False, "message": "Faltan parámetros"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        if tipo == "general":
+            query = """
+                SELECT 
+                    e.matricula,
+                    e.nombre,
+                    e.apellido_paterno,
+                    e.apellido_materno,
+                    e.carrera,
+                    e.semestre,
+                    e.grupo,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Asistencia' THEN 1 END) AS asistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Inasistencia' THEN 1 END) AS inasistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Justificación' THEN 1 END) AS justificaciones
+                FROM estudiantes e
+                LEFT JOIN asistencias a 
+                    ON e.matricula = a.matricula
+                    AND a.fecha >= %s
+                    AND a.fecha < %s::date + INTERVAL '1 day'
+            """
+            params = [inicio, fin]
+
+            if matricula:
+                query += " WHERE e.matricula = %s"
+                params.append(matricula)
+
+            query += """
+                GROUP BY e.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
+                         e.carrera, e.semestre, e.grupo
+                ORDER BY e.nombre
+            """
+
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            encabezados = [
+                "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                "Carrera", "Semestre", "Grupo",
+                "Asistencias", "Inasistencias", "Justificaciones"
+            ]
+
+            filas = [
+                [
+                    str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                    str(r[4]), str(r[5]), str(r[6]),
+                    str(r[7]), str(r[8]), str(r[9])
+                ]
+                for r in resultados
+            ]
+
+            titulo = f"Reporte General de Estudiantes ({inicio} a {fin})"
+            nombre_archivo = f"reporte_general_estudiantes_{inicio}_a_{fin}.pdf"
+
+        else:
+            mapa_estados = {
+                "asistencias": "Asistencia",
+                "inasistencias": "Inasistencia",
+                "justificaciones": "Justificación"
+            }
+
+            if tipo not in mapa_estados:
+                return jsonify({"success": False, "message": "Tipo de reporte no válido"}), 400
+
+            estado = mapa_estados[tipo]
+
+            query = """
+                SELECT
+                    e.matricula,
+                    e.nombre,
+                    e.apellido_paterno,
+                    e.apellido_materno,
+                    e.carrera,
+                    e.semestre,
+                    e.grupo,
+                    a.fecha,
+                    a.estado_asistencia,
+                    a.motivo_justificacion
+                FROM asistencias a
+                JOIN estudiantes e ON a.matricula = e.matricula
+                WHERE a.estado_asistencia = %s
+                  AND a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
+            """
+            params = [estado, inicio, fin]
+
+            if matricula:
+                query += " AND e.matricula = %s"
+                params.append(matricula)
+
+            query += " ORDER BY a.fecha"
+
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            if tipo == "asistencias":
+                encabezados = [
+                    "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Carrera", "Semestre", "Grupo", "Fecha", "Asistencia"
+                ]
+
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]), str(r[5]), str(r[6]),
+                        r[7].strftime("%Y-%m-%d") if r[7] else "",
+                        "✔"
+                    ]
+                    for r in resultados
+                ]
+
+            elif tipo == "inasistencias":
+                encabezados = [
+                    "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Carrera", "Semestre", "Grupo", "Fecha", "Inasistencia"
+                ]
+
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]), str(r[5]), str(r[6]),
+                        r[7].strftime("%Y-%m-%d") if r[7] else "",
+                        "✘"
+                    ]
+                    for r in resultados
+                ]
+
+            else:  # justificaciones
+                encabezados = [
+                    "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Carrera", "Semestre", "Grupo", "Fecha", "Motivo"
+                ]
+
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]), str(r[5]), str(r[6]),
+                        r[7].strftime("%Y-%m-%d") if r[7] else "",
+                        str(r[9]) if r[9] else ""
+                    ]
+                    for r in resultados
+                ]
+
+            titulo = f"Reporte de {estado} de Estudiantes ({inicio} a {fin})"
+            nombre_archivo = f"reporte_{tipo}_estudiantes_{inicio}_a_{fin}.pdf"
+
+        if not filas:
+            return jsonify({"success": False, "message": "No hay datos para exportar"}), 404
+
+        pdf_buffer = generar_pdf_tabla(titulo, encabezados, filas)
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=nombre_archivo,
+            mimetype="application/pdf"
+        )
+
+    except Exception as e:
+        print("Error al exportar PDF de estudiantes:", e)
+        return jsonify({"success": False, "message": "Error al generar PDF"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/api/reporte_grupal_estudiantes/pdf", methods=["GET"])
+def exportar_reporte_grupal_estudiantes_pdf():
+    inicio = request.args.get("inicio")
+    fin = request.args.get("fin")
+    carrera = request.args.get("carrera")
+    semestre = request.args.get("semestre")
+    grupo = request.args.get("grupo")
+    tipo = request.args.get("tipo")
+
+    if not inicio or not fin or not carrera or not semestre or not grupo or not tipo:
+        return jsonify({"success": False, "message": "Faltan parámetros"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        if tipo == "general":
+            query = """
+                SELECT
+                    e.matricula,
+                    e.nombre,
+                    e.apellido_paterno,
+                    e.apellido_materno,
+                    e.carrera,
+                    e.semestre,
+                    e.grupo,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Asistencia' THEN 1 END) AS asistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Inasistencia' THEN 1 END) AS inasistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Justificación' THEN 1 END) AS justificaciones
+                FROM estudiantes e
+                LEFT JOIN asistencias a
+                    ON e.matricula = a.matricula
+                    AND a.fecha >= %s
+                    AND a.fecha < %s::date + INTERVAL '1 day'
+                WHERE e.carrera = %s
+                  AND e.semestre = %s
+                  AND e.grupo = %s
+                GROUP BY e.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
+                         e.carrera, e.semestre, e.grupo
+                ORDER BY e.nombre
+            """
+            params = [inicio, fin, carrera, semestre, grupo]
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            encabezados = [
+                "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                "Carrera", "Semestre", "Grupo",
+                "Asistencias", "Inasistencias", "Justificaciones"
+            ]
+
+            filas = [
+                [
+                    str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                    str(r[4]), str(r[5]), str(r[6]),
+                    str(r[7]), str(r[8]), str(r[9])
+                ]
+                for r in resultados
+            ]
+
+            titulo = f"Reporte Grupal General de Estudiantes ({inicio} a {fin})"
+            nombre_archivo = f"reporte_grupal_estudiantes_general_{inicio}_a_{fin}.pdf"
+
+        else:
+            mapa_estados = {
+                "asistencias": "Asistencia",
+                "inasistencias": "Inasistencia",
+                "justificaciones": "Justificación"
+            }
+
+            if tipo not in mapa_estados:
+                return jsonify({"success": False, "message": "Tipo no válido"}), 400
+
+            estado = mapa_estados[tipo]
+
+            query = """
+                SELECT
+                    e.matricula,
+                    e.nombre,
+                    e.apellido_paterno,
+                    e.apellido_materno,
+                    e.carrera,
+                    e.semestre,
+                    e.grupo,
+                    a.fecha,
+                    a.motivo_justificacion
+                FROM asistencias a
+                JOIN estudiantes e ON a.matricula = e.matricula
+                WHERE a.estado_asistencia = %s
+                  AND a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
+                  AND e.carrera = %s
+                  AND e.semestre = %s
+                  AND e.grupo = %s
+                ORDER BY a.fecha
+            """
+            params = [estado, inicio, fin, carrera, semestre, grupo]
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            if tipo == "asistencias":
+                encabezados = [
+                    "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Carrera", "Semestre", "Grupo", "Fecha", "Asistencia"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]), str(r[5]), str(r[6]),
+                        r[7].strftime("%Y-%m-%d %H:%M") if r[7] else "",
+                        "✔"
+                    ]
+                    for r in resultados
+                ]
+
+            elif tipo == "inasistencias":
+                encabezados = [
+                    "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Carrera", "Semestre", "Grupo", "Fecha", "Inasistencia"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]), str(r[5]), str(r[6]),
+                        r[7].strftime("%Y-%m-%d %H:%M") if r[7] else "",
+                        "✘"
+                    ]
+                    for r in resultados
+                ]
+
+            else:  # justificaciones
+                encabezados = [
+                    "Matrícula", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Carrera", "Semestre", "Grupo", "Fecha", "Motivo"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]), str(r[5]), str(r[6]),
+                        r[7].strftime("%Y-%m-%d %H:%M") if r[7] else "",
+                        str(r[8]) if r[8] else ""
+                    ]
+                    for r in resultados
+                ]
+
+            titulo = f"Reporte Grupal de {estado} de Estudiantes ({inicio} a {fin})"
+            nombre_archivo = f"reporte_grupal_estudiantes_{tipo}_{inicio}_a_{fin}.pdf"
+
+        if not filas:
+            return jsonify({"success": False, "message": "No hay datos para exportar"}), 404
+
+        pdf_buffer = generar_pdf_tabla(titulo, encabezados, filas)
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=nombre_archivo,
+            mimetype="application/pdf"
+        )
+
+    except Exception as e:
+        print("Error al exportar PDF grupal de estudiantes:", e)
+        return jsonify({"success": False, "message": "Error al generar PDF"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/api/reporte_grupal_docentes/pdf", methods=["GET"])
+def exportar_reporte_grupal_docentes_pdf():
+    inicio = request.args.get("inicio")
+    fin = request.args.get("fin")
+    tipo = request.args.get("tipo")
+
+    if not inicio or not fin or not tipo:
+        return jsonify({"success": False, "message": "Faltan parámetros"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        if tipo == "general":
+            query = """
+                SELECT
+                    p.clave,
+                    p.nombre,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.puesto,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Asistencia' THEN 1 END) AS asistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Inasistencia' THEN 1 END) AS inasistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Justificación' THEN 1 END) AS justificaciones
+                FROM personal p
+                LEFT JOIN asistencias_personal a
+                    ON p.id = a.personal_id
+                    AND a.fecha >= %s
+                    AND a.fecha < %s::date + INTERVAL '1 day'
+                WHERE LOWER(p.puesto) LIKE %s
+                GROUP BY p.clave, p.nombre, p.apellido_paterno, p.apellido_materno, p.puesto
+                ORDER BY p.nombre
+            """
+            params = [inicio, fin, "%docente%"]
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            encabezados = [
+                "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                "Puesto", "Asistencias", "Inasistencias", "Justificaciones"
+            ]
+
+            filas = [
+                [
+                    str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                    str(r[4]), str(r[5]), str(r[6]), str(r[7])
+                ]
+                for r in resultados
+            ]
+
+            titulo = f"Reporte Grupal General de Docentes ({inicio} a {fin})"
+            nombre_archivo = f"reporte_grupal_docentes_general_{inicio}_a_{fin}.pdf"
+
+        else:
+            mapa_estados = {
+                "asistencias": "Asistencia",
+                "inasistencias": "Inasistencia",
+                "justificaciones": "Justificación"
+            }
+
+            if tipo not in mapa_estados:
+                return jsonify({"success": False, "message": "Tipo no válido"}), 400
+
+            estado = mapa_estados[tipo]
+
+            query = """
+                SELECT
+                    p.clave,
+                    p.nombre,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.puesto,
+                    a.fecha,
+                    a.motivo_justificacion
+                FROM asistencias_personal a
+                JOIN personal p ON a.personal_id = p.id
+                WHERE a.estado_asistencia = %s
+                  AND a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
+                  AND LOWER(p.puesto) LIKE %s
+                ORDER BY a.fecha
+            """
+            params = [estado, inicio, fin, "%docente%"]
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            if tipo == "asistencias":
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Asistencia"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]),
+                        r[5].strftime("%Y-%m-%d %H:%M") if r[5] else "",
+                        "✔"
+                    ]
+                    for r in resultados
+                ]
+
+            elif tipo == "inasistencias":
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Inasistencia"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]),
+                        r[5].strftime("%Y-%m-%d %H:%M") if r[5] else "",
+                        "✘"
+                    ]
+                    for r in resultados
+                ]
+
+            else:  # justificaciones
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Motivo"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]),
+                        r[5].strftime("%Y-%m-%d %H:%M") if r[5] else "",
+                        str(r[6]) if r[6] else ""
+                    ]
+                    for r in resultados
+                ]
+
+            titulo = f"Reporte Grupal de {estado} de Docentes ({inicio} a {fin})"
+            nombre_archivo = f"reporte_grupal_docentes_{tipo}_{inicio}_a_{fin}.pdf"
+
+        if not filas:
+            return jsonify({"success": False, "message": "No hay datos para exportar"}), 404
+
+        pdf_buffer = generar_pdf_tabla(titulo, encabezados, filas)
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=nombre_archivo,
+            mimetype="application/pdf"
+        )
+
+    except Exception as e:
+        print("Error al exportar PDF grupal de docentes:", e)
+        return jsonify({"success": False, "message": "Error al generar PDF"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+@app.route("/api/reporte_grupal_administrativo/pdf", methods=["GET"])
+def exportar_reporte_grupal_administrativo_pdf():
+    inicio = request.args.get("inicio")
+    fin = request.args.get("fin")
+    tipo = request.args.get("tipo")
+
+    if not inicio or not fin or not tipo:
+        return jsonify({"success": False, "message": "Faltan parámetros"}), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        if tipo == "general":
+            query = """
+                SELECT
+                    p.clave,
+                    p.nombre,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.puesto,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Asistencia' THEN 1 END) AS asistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Inasistencia' THEN 1 END) AS inasistencias,
+                    COUNT(CASE WHEN a.estado_asistencia = 'Justificación' THEN 1 END) AS justificaciones
+                FROM personal p
+                LEFT JOIN asistencias_personal a
+                    ON p.id = a.personal_id
+                    AND a.fecha >= %s
+                    AND a.fecha < %s::date + INTERVAL '1 day'
+                WHERE LOWER(p.puesto) NOT LIKE %s
+                GROUP BY p.clave, p.nombre, p.apellido_paterno, p.apellido_materno, p.puesto
+                ORDER BY p.nombre
+            """
+            params = [inicio, fin, "%docente%"]
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            encabezados = [
+                "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                "Puesto", "Asistencias", "Inasistencias", "Justificaciones"
+            ]
+
+            filas = [
+                [
+                    str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                    str(r[4]), str(r[5]), str(r[6]), str(r[7])
+                ]
+                for r in resultados
+            ]
+
+            titulo = f"Reporte Grupal General de Personal Administrativo ({inicio} a {fin})"
+            nombre_archivo = f"reporte_grupal_administrativo_general_{inicio}_a_{fin}.pdf"
+
+        else:
+            mapa_estados = {
+                "asistencias": "Asistencia",
+                "inasistencias": "Inasistencia",
+                "justificaciones": "Justificación"
+            }
+
+            if tipo not in mapa_estados:
+                return jsonify({"success": False, "message": "Tipo no válido"}), 400
+
+            estado = mapa_estados[tipo]
+
+            query = """
+                SELECT
+                    p.clave,
+                    p.nombre,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.puesto,
+                    a.fecha,
+                    a.motivo_justificacion
+                FROM asistencias_personal a
+                JOIN personal p ON a.personal_id = p.id
+                WHERE a.estado_asistencia = %s
+                  AND a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
+                  AND LOWER(p.puesto) NOT LIKE %s
+                ORDER BY a.fecha
+            """
+            params = [estado, inicio, fin, "%docente%"]
+            cur.execute(query, params)
+            resultados = cur.fetchall()
+
+            if tipo == "asistencias":
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Asistencia"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]),
+                        r[5].strftime("%Y-%m-%d %H:%M") if r[5] else "",
+                        "✔"
+                    ]
+                    for r in resultados
+                ]
+
+            elif tipo == "inasistencias":
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Inasistencia"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]),
+                        r[5].strftime("%Y-%m-%d %H:%M") if r[5] else "",
+                        "✘"
+                    ]
+                    for r in resultados
+                ]
+
+            else:  # justificaciones
+                encabezados = [
+                    "Clave", "Nombre", "Apellido Paterno", "Apellido Materno",
+                    "Puesto", "Fecha", "Motivo"
+                ]
+                filas = [
+                    [
+                        str(r[0]), str(r[1]), str(r[2]), str(r[3]),
+                        str(r[4]),
+                        r[5].strftime("%Y-%m-%d %H:%M") if r[5] else "",
+                        str(r[6]) if r[6] else ""
+                    ]
+                    for r in resultados
+                ]
+
+            titulo = f"Reporte Grupal de {estado} de Personal Administrativo ({inicio} a {fin})"
+            nombre_archivo = f"reporte_grupal_administrativo_{tipo}_{inicio}_a_{fin}.pdf"
+
+        if not filas:
+            return jsonify({"success": False, "message": "No hay datos para exportar"}), 404
+
+        pdf_buffer = generar_pdf_tabla(titulo, encabezados, filas)
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=nombre_archivo,
+            mimetype="application/pdf"
+        )
+
+    except Exception as e:
+        print("Error al exportar PDF grupal administrativo:", e)
+        return jsonify({"success": False, "message": "Error al generar PDF"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+def generar_pdf_tabla(titulo, encabezados, filas):
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        rightMargin=25,
+        leftMargin=25,
+        topMargin=25,
+        bottomMargin=25
+    )
+
+    elementos = []
+    estilos = getSampleStyleSheet()
+
+    elementos.append(Paragraph(titulo, estilos["Title"]))
+    elementos.append(Spacer(1, 12))
+
+    data = [encabezados] + filas
+
+    tabla = Table(data, repeatRows=1)
+
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#198754")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    elementos.append(tabla)
+    doc.build(elementos)
+
+    buffer.seek(0)
+    return buffer
+
+def login_requerido(f):
+    @wraps(f)
+    def decorada(*args, **kwargs):
+        if not session.get("usuario_autenticado"):
+            return redirect(url_for("login_vista"))
+        return f(*args, **kwargs)
+    return decorada
+
+
+def verificacion_requerida(f):
+    @wraps(f)
+    def decorada(*args, **kwargs):
+        if not session.get("verificacion_autorizada"):
+            return redirect(url_for("acceso_verificacion"))
+        return f(*args, **kwargs)
+    return decorada
+
 @app.route("/acceso-verificacion")
 def acceso_verificacion():
     return render_template("acceso_verificacion.html")
@@ -36,7 +924,7 @@ def obtener_mensajes_telegram():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
 
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         data = response.json()
 
         mensajes = []
@@ -83,9 +971,16 @@ def sincronizar_chat_ids_telegram():
 
         # Obtener último update_id guardado
         cursor.execute("SELECT ultimo_update_id FROM telegram_control LIMIT 1")
-        ultimo_update_id = cursor.fetchone()[0]
+        fila = cursor.fetchone()
+        ultimo_update_id = fila[0] if fila else 0
 
-        response = requests.get(url, timeout=10)
+        # Pedir solo mensajes nuevos
+        params_telegram = {
+            "offset": ultimo_update_id + 1,
+            "timeout": 2
+        }
+
+        response = requests.get(url, params=params_telegram, timeout=5)
         data = response.json()
 
         actualizados = 0
@@ -94,22 +989,26 @@ def sincronizar_chat_ids_telegram():
         if data.get("ok"):
             for item in data.get("result", []):
                 update_id = item["update_id"]
-
-                # Ignorar mensajes ya procesados
-                if update_id <= ultimo_update_id:
-                    continue
-
                 mensaje = item.get("message", {})
                 chat_id = mensaje.get("chat", {}).get("id")
                 texto = mensaje.get("text", "").strip()
 
+                if not chat_id or not texto:
+                    if update_id > nuevo_update_id:
+                        nuevo_update_id = update_id
+                    continue
+
                 partes = texto.split()
 
-                # 🔹 CASO 1: SOLO /start → BIENVENIDA
+                # 🔹 CASO 1: SOLO /start
                 if texto.lower() == "/start":
                     enviar_mensaje_telegram(
                         chat_id,
-                        "👋 Bienvenido al sistema de asistencias.\n\nPor favor, ingresa la matrícula del estudiante usando este formato:\n/start NUMERO_MATRICULA"
+                        "👋 Bienvenido al sistema de asistencias.\n\n"
+                        "Usa:\n/start TU_MATRICULA\n\n"
+                        "También puedes usar:\n"
+                        "/info\n"
+                        "/estado"
                     )
 
                 # 🔹 CASO 2: /start MATRICULA
@@ -138,26 +1037,49 @@ def sincronizar_chat_ids_telegram():
 
                         enviar_mensaje_telegram(
                             chat_id,
-                            f"✅ Hola {nombre} {apellido_paterno} {apellido_materno}, tu matrícula {matricula} ha sido vinculada a este chat."
+                            f"✅ Hola {nombre} {apellido_paterno} {apellido_materno}, "
+                            f"tu matrícula {matricula} ha sido vinculada."
                         )
                     else:
                         enviar_mensaje_telegram(
                             chat_id,
-                            f"❌ No se encontró la matrícula {matricula} en el sistema."
+                            f"❌ No se encontró la matrícula {matricula}."
                         )
 
-                # 🔹 CASO 3: CUALQUIER OTRA COSA
+                # 🔹 CASO 3: /info
+                elif texto.lower() == "/info":
+                    enviar_mensaje_telegram(
+                        chat_id,
+                        "ℹ️ Bot de asistencias activo.\n\n"
+                        "Comandos disponibles:\n"
+                        "/start TU_MATRICULA → vincular matrícula\n"
+                        "/info → ver ayuda\n"
+                        "/estado → verificar estado del chat"
+                    )
+
+                # 🔹 CASO 4: /estado
+                elif texto.lower() == "/estado":
+                    enviar_mensaje_telegram(
+                        chat_id,
+                        "✅ Tu chat está activo.\n\n"
+                        "Si ya vinculaste tu matrícula, recibirás notificaciones automáticas."
+                    )
+
+                # 🔹 CASO 5: OTRO TEXTO
                 else:
                     enviar_mensaje_telegram(
                         chat_id,
-                        "⚠️ Formato incorrecto. Usa: /start TU_MATRICULA"
+                        "⚠️ Comando no reconocido.\n\n"
+                        "Usa alguno de estos:\n"
+                        "/start TU_MATRICULA\n"
+                        "/info\n"
+                        "/estado"
                     )
 
-                # Guardar el update_id más alto
                 if update_id > nuevo_update_id:
                     nuevo_update_id = update_id
 
-        # Actualizar el último update_id en BD
+        # Guardar último update_id
         cursor.execute("""
             UPDATE telegram_control
             SET ultimo_update_id = %s
@@ -179,7 +1101,6 @@ def sincronizar_chat_ids_telegram():
             "message": str(e)
         }
 
-
 def enviar_mensaje_telegram(chat_id, texto):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
@@ -189,7 +1110,7 @@ def enviar_mensaje_telegram(chat_id, texto):
     }
 
     try:
-        response = requests.post(url, data=payload, timeout=10)
+        response = requests.post(url, data=payload, timeout=5)
         return response.json()
     except Exception as e:
         print("Error al enviar mensaje por Telegram:", e)
@@ -197,17 +1118,23 @@ def enviar_mensaje_telegram(chat_id, texto):
 
 @app.route("/api/login-verificacion", methods=["POST"])
 def login_verificacion():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     usuario = data.get("usuario")
     contraseña = data.get("contraseña")
+
+    print("DEBUG login_verificacion -> data:", data)
+    print("DEBUG login_verificacion -> usuario:", usuario)
 
     if not usuario or not contraseña:
         return jsonify({"success": False, "message": "Faltan credenciales"}), 400
 
-    conn = conectar_bd()
-    cur = conn.cursor()
+    conn = None
+    cur = None
 
     try:
+        conn = conectar_bd()
+        cur = conn.cursor()
+
         cur.execute("""
             SELECT rol, es_maestro, contraseña
             FROM usuarios
@@ -215,6 +1142,7 @@ def login_verificacion():
         """, (usuario,))
 
         resultado = cur.fetchone()
+        print("DEBUG login_verificacion -> resultado:", resultado)
 
         if not resultado:
             return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
@@ -222,6 +1150,9 @@ def login_verificacion():
         rol = resultado[0]
         es_maestro = resultado[1]
         hash_guardado = resultado[2]
+
+        print("DEBUG login_verificacion -> rol:", rol)
+        print("DEBUG login_verificacion -> es_maestro:", es_maestro)
 
         if not verificar_contrasena(contraseña, hash_guardado):
             return jsonify({"success": False, "message": "Credenciales incorrectas"}), 401
@@ -241,14 +1172,14 @@ def login_verificacion():
         }), 403
 
     except Exception as e:
-        print("Error en login_verificacion:", e)
-        return jsonify({"success": False, "message": "Error al validar acceso"}), 500
+        print("ERROR login_verificacion:", repr(e))
+        return jsonify({"success": False, "message": f"Error al validar acceso: {str(e)}"}), 500
 
     finally:
-        cur.close()
-        conn.close()
-
-
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def enviar_telegram(mensaje, chat_id):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -258,7 +1189,7 @@ def enviar_telegram(mensaje, chat_id):
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=5)
         return response.status_code == 200
     except Exception as e:
         print("Error al enviar mensaje a Telegram:", e)
@@ -276,6 +1207,21 @@ def enviar_telegram_multiple(mensaje, chat_ids):
             })
 
     return enviados
+
+def ciclo_telegram():
+    while True:
+        try:
+            resultado = sincronizar_chat_ids_telegram()
+            if resultado.get("success"):
+                actualizados = resultado.get("actualizados", 0)
+                if actualizados > 0:
+                    print(f"Telegram sincronizado. Actualizados: {actualizados}")
+            else:
+                print("Error en sincronización Telegram:", resultado.get("message"))
+        except Exception as e:
+            print("Error en ciclo_telegram:", e)
+
+        time.sleep(5)  # revisa cada 5 segundos
 
 def encriptar_contrasena(contraseña):
     return bcrypt.hashpw(contraseña.encode('utf-8'), 
@@ -536,6 +1482,7 @@ def generar_reporte_general():
         conn.close()
         
 @app.route("/agregar")
+@login_requerido
 def vista_agregar_estudiante():
     return render_template("agregar.html")
 
@@ -646,7 +1593,7 @@ def actualizar_estudiante():
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.get_json()
+    data = request.get_json() or {}
     usuario = data.get("usuario")
     contraseña = data.get("contraseña")
 
@@ -656,25 +1603,43 @@ def login():
     conn = conectar_bd()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT id, nombre, apellido_paterno, apellido_materno, rol, es_maestro, contraseña
-        FROM usuarios
-        WHERE usuario = %s
-    """, (usuario,))
+    try:
+        cur.execute("""
+            SELECT id, nombre, apellido_paterno, apellido_materno, rol, es_maestro, contraseña
+            FROM usuarios
+            WHERE usuario = %s
+        """, (usuario,))
 
-    resultado = cur.fetchone()
-    cur.close()
-    conn.close()
+        resultado = cur.fetchone()
 
-    if resultado and verificar_contrasena(contraseña, resultado[6]):
+        if resultado and verificar_contrasena(contraseña, resultado[6]):
+            session["usuario_autenticado"] = True
+            session["usuario"] = usuario
+            session["rol"] = resultado[4]
+            session["es_maestro"] = resultado[5]
+
+            return jsonify({
+                "success": True,
+                "usuario": usuario,
+                "rol": resultado[4],
+                "es_maestro": resultado[5]
+            }), 200
+
         return jsonify({
-            "success": True,
-            "usuario": usuario,
-            "rol": resultado[4],
-            "es_maestro": resultado[5]
-        })
-    else:
-        return jsonify({"success": False, "message": "Credenciales incorrectas"})
+            "success": False,
+            "message": "Credenciales incorrectas"
+        }), 401
+
+    except Exception as e:
+        print("Error en login:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al iniciar sesión"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
 
 @app.route("/api/validar-master", methods=["POST"])
 def validar_master():
@@ -914,6 +1879,7 @@ def listar_estudiantes():
         conn.close()
 
 @app.route('/api/registrar_usuario', methods=['POST'])
+@login_requerido
 def registrar_usuario():
     data = request.get_json()
 
@@ -1000,6 +1966,7 @@ def agregar_personal():
         cur.close()
         conn.close()
 @app.route("/agregar-personal")
+@login_requerido
 def vista_agregar_personal():
     return render_template("agregar_personal.html")
 
@@ -1049,55 +2016,68 @@ def eliminar_personal(clave):
         conn.close()
 
 @app.route("/docentes")
+@login_requerido
 def vista_docentes():
     return render_template("docentes.html")
 
 @app.route("/estudiantes")
+@login_requerido
 def vista_estudiantes():
     return render_template("estudiantes.html")
 
 @app.route("/reporte-docentes-asistencias")
+@login_requerido
 def vista_reporte_docentes_asistencias():
     return render_template("Generar_Reporte_Docentes_Asistencias.html")
 
 
 @app.route("/reporte-docentes-general")
+@login_requerido
 def vista_reporte_docentes_general():
     return render_template("Generar_reporte_docentes_general.html")
 
 @app.route("/reporte-docentes-inasistencias")
+@login_requerido
 def vista_reporte_docentes_inasistencias():
     return render_template("Generar_Reporte_Docentes_Inasistencias.html")
 
 @app.route("/reporte-docentes-justificaciones")
+@login_requerido
 def vista_reporte_docentes_justificaciones():
     return render_template("Generar_Reporte_Docentes_Justificaciones.html")
 
 @app.route("/reporte-estudiantes-asistencias")
+@login_requerido
 def vista_reporte_estudiantes_asistencias():
     return render_template("Generar_Reporte_Estudiantes_Asistencias.html")
 
 @app.route("/reporte-estudiantes-general")
+@login_requerido
 def vista_reporte_estudiantes_general():
     return render_template("Generar_Reporte_Estudiantes_General.html")
 
 @app.route("/reporte-estudiantes-inasistencias")
+@login_requerido
 def vista_reporte_estudiantes_inasistencias():
     return render_template("Generar_Reporte_Estudiantes_Inasistencias.html")
 
 @app.route("/reporte-estudiantes-justificaciones")
+@login_requerido
 def vista_reporte_estudiantes_justificaciones():
     return render_template("Generar_Reporte_Estudiantes_Justificaciones.html")
 
 @app.route("/historial")
+@login_requerido
 def vista_historial():
     return render_template("historial.html")
 
 @app.route("/informacion-docente")
+@login_requerido
 def vista_informacion_docente():
     return render_template("informacion_docente.html")
 
 @app.route("/informacion-estudiante")
+@login_requerido
 def vista_informacion_estudiante():
     return render_template("informacion_estudiante.html")
 
@@ -1110,18 +2090,22 @@ def login_vista():
     return render_template("login.html")
 
 @app.route("/modificar-reporte-docentes")
+@login_requerido
 def vista_modificar_reporte_docentes():
     return render_template("Modificar_Reporte_Docentes.html")
 
 @app.route("/modificar-reporte-estudiantes")
+@login_requerido
 def vista_modificar_reporte_estudiantes():
     return render_template("Modificar_Reporte_Estudiantes.html")
 
 @app.route("/panel-inicio")
+@login_requerido
 def vista_panel_inicio():
     return render_template("panel_inicio.html")
 
 @app.route("/api/dashboard", methods=["GET"])
+@login_requerido
 def dashboard():
     conn = conectar_bd()
     cur = conn.cursor()
@@ -1192,78 +2176,97 @@ def dashboard():
         conn.close()
         
 @app.route("/registro")
+@login_requerido
 def vista_registro():
     return render_template("registro.html")
 
 @app.route("/reporte-docentes")
+@login_requerido
 def vista_reporte_docentes():
     return render_template("reporte_docentes.html")
 
 @app.route("/reporte-estudiantes")
+@login_requerido
 def vista_reporte_estudiantes():
     return render_template("reporte_estudiantes.html")
 
 @app.route("/reportes-grupales-estudiantes-asistencias")
+@login_requerido
 def vista_rg_estudiantes_asistencias():
     return render_template("Reportes_Grupales_Estudiantes_Asistencias.html")
 
 @app.route("/reportes-grupales-estudiantes-general")
+@login_requerido
 def vista_rg_estudiantes_general():
     return render_template("Reportes_Grupales_Estudiantes_General.html")
 
 @app.route("/reportes-grupales-estudiantes-inasistencias")
+@login_requerido
 def vista_rg_estudiantes_inasistencias():
     return render_template("Reportes_Grupales_Estudiantes_Inasistencias.html")
 
 @app.route("/reportes-grupales-estudiantes-justificaciones")
+@login_requerido
 def vista_rg_estudiantes_justificaciones():
     return render_template("Reportes_Grupales_Estudiantes_Justificaciones.html")
 
 @app.route("/reportes-grupales-docentes-asistencias")
+@login_requerido
 def vista_rg_docentes_asistencias():
     return render_template("Reportes_Grupales_Docentes_Asistencias.html")
 
 @app.route("/reportes-grupales-docentes-general")
+@login_requerido
 def vista_rg_docentes_general():
     return render_template("Reportes_Grupales_Docentes_General.html")
 
 @app.route("/reportes-grupales-docentes-inasistencias")
+@login_requerido
 def vista_rg_docentes_inasistencias():
     return render_template("Reportes_Grupales_Docentes_Inasistencias.html")
 
 @app.route("/reportes-grupales-docentes-justificaciones")
+@login_requerido
 def vista_rg_docentes_justificaciones():
     return render_template("Reportes_Grupales_Docentes_Justificaciones.html")
 
 @app.route("/reportes-grupales-administrativo-asistencias")
+@login_requerido
 def vista_rg_admin_asistencias():
     return render_template("Reportes_Grupales_Administrativo_Asistencias.html")
 
 @app.route("/reportes-grupales-administrativo-general")
+@login_requerido
 def vista_rg_admin_general():
     return render_template("Reportes_Grupales_Administrativo_General.html")
 
 @app.route("/reportes-grupales-administrativo-inasistencias")
+@login_requerido
 def vista_rg_admin_inasistencias():
     return render_template("Reportes_Grupales_Administrativo_Inasistencias.html")
 
 @app.route("/reportes-grupales-administrativo-justificaciones")
+@login_requerido
 def vista_rg_admin_justificaciones():
     return render_template("Reportes_Grupales_Administrativo_Justificaciones.html")
 
 @app.route("/reportes")
+@login_requerido
 def vista_reportes():
     return render_template("reportes.html")
 
 @app.route("/cambiar-contrasena")
+@login_requerido
 def vista_cambiar_contrasena():
     return render_template("cambiar_contrasena.html")
 
 @app.route("/restablecer-contrasena")
+@login_requerido
 def vista_restablecer_contrasena():
     return render_template("restablecer_contrasena.html")
 
 @app.route("/api/restablecer-contrasena", methods=["POST"])
+@login_requerido
 def restablecer_contrasena():
     data = request.get_json() or {}
 
@@ -1342,6 +2345,7 @@ def restablecer_contrasena():
         conn.close()
 
 @app.route("/api/cambiar-contrasena", methods=["POST"])
+@login_requerido
 def cambiar_contrasena():
     data = request.get_json() or {}
 
@@ -1365,7 +2369,7 @@ def cambiar_contrasena():
         resultado = cur.fetchone()
 
         if not resultado:
-            return jsonify({"success": False, "message": "Usuario no encontrado"}), 404
+            return jsonify({"success": False, "message": "❌ Usuario no encontrado. debe darse de alta primero"}), 404
 
         hash_guardado = resultado[0]
 
@@ -1404,6 +2408,7 @@ def cambiar_contrasena():
 
 
 @app.route("/api/validar-admin-master", methods=["POST"])
+@login_requerido
 def validar_admin_master():
     data = request.get_json() or {}
     usuario = data.get("usuario")
@@ -1444,6 +2449,7 @@ def validar_admin_master():
         conn.close()
 
 @app.route("/api/modificar-reporte-personal", methods=["GET"])
+@login_requerido
 def modificar_reporte_personal():
     clave = request.args.get("clave")
     inicio = request.args.get("inicio")
@@ -1764,7 +2770,7 @@ def guardar_cambios():
 # Listar asistencias con filtros avanzados
 @app.route("/api/listar-asistencias", methods=["POST"])
 def listar_asistencias():
-    data = request.get_json()
+    data = request.get_json() or {}
     fecha_inicio = data.get("fecha_inicio")
     fecha_fin = data.get("fecha_fin")
     comunidad = data.get("comunidad")
@@ -1773,6 +2779,9 @@ def listar_asistencias():
     carrera = data.get("carrera")
     semestre = data.get("semestre")
     grupo = data.get("grupo")
+
+    if not fecha_inicio or not fecha_fin or not comunidad or not tipo_reporte:
+        return jsonify({"success": False, "message": "Faltan parámetros obligatorios"}), 400
 
     conn = conectar_bd()
     cur = conn.cursor()
@@ -1787,16 +2796,19 @@ def listar_asistencias():
                        a.motivo_justificacion
                 FROM asistencias a
                 JOIN estudiantes e ON a.matricula = e.matricula
-                WHERE a.fecha BETWEEN %s AND %s
+                WHERE a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
             """
             params = [fecha_inicio, fecha_fin]
 
             if carrera:
                 query += " AND e.carrera = %s"
                 params.append(carrera)
+
             if semestre:
                 query += " AND e.semestre = %s"
                 params.append(semestre)
+
             if grupo:
                 query += " AND e.grupo = %s"
                 params.append(grupo)
@@ -1810,17 +2822,32 @@ def listar_asistencias():
                        a.motivo_justificacion
                 FROM asistencias_personal a
                 JOIN personal p ON a.personal_id = p.id
-                WHERE a.fecha BETWEEN %s AND %s
+                WHERE a.fecha >= %s
+                  AND a.fecha < %s::date + INTERVAL '1 day'
             """
             params = [fecha_inicio, fecha_fin]
 
             if comunidad == "docentes":
-                query += " AND p.puesto = %s"
-                params.append("Docente")
+                query += """
+                    AND LOWER(TRIM(p.puesto)) LIKE %s
+                """
+                params.append("%docente%")
 
             elif comunidad == "administrativo":
-                query += " AND p.puesto IN (%s, %s, %s)"
-                params.extend(["Administrativo", "Coordinador", "Dirección"])
+                query += """
+                    AND (
+                        LOWER(TRIM(p.puesto)) LIKE %s
+                        OR LOWER(TRIM(p.puesto)) LIKE %s
+                        OR LOWER(TRIM(p.puesto)) LIKE %s
+                        OR LOWER(TRIM(p.puesto)) LIKE %s
+                    )
+                """
+                params.extend([
+                    "%administrativo%",
+                    "%coordinador%",
+                    "%dirección%",
+                    "%direccion%"
+                ])
 
         else:
             return jsonify({"success": False, "message": "Comunidad no válida"}), 400
@@ -1831,6 +2858,10 @@ def listar_asistencias():
             query += " AND a.estado_asistencia = 'Inasistencia'"
         elif tipo_reporte == "justificaciones":
             query += " AND a.estado_asistencia = 'Justificación'"
+        elif tipo_reporte == "general":
+            pass
+        else:
+            return jsonify({"success": False, "message": "Tipo de reporte no válido"}), 400
 
         query += " ORDER BY a.fecha DESC"
 
@@ -1958,18 +2989,16 @@ def asistencias_hoy():
         cur.close()
         conn.close()
 
-@app.route("/api/registrar-asistencia", methods=["GET", "POST"])
+
+@app.route("/api/registrar-asistencia", methods=["POST"])
 def registrar_asistencia():
-    if request.method == "POST":
-        data = request.get_json() or {}
-        codigo = data.get("codigo_qr")
-    else:
-        codigo = request.args.get("codigo_qr")
+    data = request.get_json() or {}
+    codigo = data.get("codigo_qr")
 
     if not codigo:
         return jsonify({
             "success": False,
-            "message": "No se recibió código QR"
+            "message": "❌ No se recibió código QR valido"
         }), 400
 
     codigo = str(codigo).strip()
@@ -1991,7 +3020,6 @@ def registrar_asistencia():
         if alumno:
             matricula, nombre, chat_id_tutor = alumno
 
-            # Buscar registro del día
             cur.execute("""
                 SELECT id, estado_asistencia, hora_entrada, hora_salida
                 FROM asistencias
@@ -2006,7 +3034,6 @@ def registrar_asistencia():
                     destinos.append(str(chat_id_tutor).strip())
                 return destinos
 
-            # Si no existe registro hoy: crear ENTRADA
             if not registro:
                 cur.execute("""
                     INSERT INTO asistencias (
@@ -2036,9 +3063,6 @@ def registrar_asistencia():
                 )
                 enviar_telegram_multiple(mensaje, destinatarios_estudiante())
 
-                cur.close()
-                conn.close()
-
                 return jsonify({
                     "success": True,
                     "tipo_registro": "entrada",
@@ -2046,11 +3070,10 @@ def registrar_asistencia():
                     "nombre": nombre,
                     "matricula": matricula,
                     "estado": "Asistencia"
-                })
+                }), 200
 
             asistencia_id, estado_actual, hora_entrada, hora_salida = registro
 
-            # Si existe pero no tiene entrada aún (por ejemplo, tenía inasistencia automática)
             if hora_entrada is None:
                 cur.execute("""
                     UPDATE asistencias
@@ -2074,9 +3097,6 @@ def registrar_asistencia():
                 )
                 enviar_telegram_multiple(mensaje, destinatarios_estudiante())
 
-                cur.close()
-                conn.close()
-
                 return jsonify({
                     "success": True,
                     "tipo_registro": "entrada",
@@ -2084,9 +3104,8 @@ def registrar_asistencia():
                     "nombre": nombre,
                     "matricula": matricula,
                     "estado": "Asistencia"
-                })
+                }), 200
 
-            # Si ya tiene entrada pero no salida: registrar SALIDA
             if hora_salida is None:
                 cur.execute("""
                     UPDATE asistencias
@@ -2108,9 +3127,6 @@ def registrar_asistencia():
                 )
                 enviar_telegram_multiple(mensaje, destinatarios_estudiante())
 
-                cur.close()
-                conn.close()
-
                 return jsonify({
                     "success": True,
                     "tipo_registro": "salida",
@@ -2118,18 +3134,15 @@ def registrar_asistencia():
                     "nombre": nombre,
                     "matricula": matricula,
                     "estado": estado_actual
-                })
+                }), 200
 
-            # Si ya tiene entrada y salida
-            cur.close()
-            conn.close()
             return jsonify({
                 "success": False,
                 "message": f"Entrada y salida ya registradas hoy para {nombre}",
                 "nombre": nombre,
                 "matricula": matricula,
                 "estado": estado_actual
-            })
+            }), 200
 
         # =========================
         # BUSCAR PERSONAL
@@ -2152,7 +3165,6 @@ def registrar_asistencia():
             """, (personal_id,))
             registro = cur.fetchone()
 
-            # Si no existe registro hoy: crear ENTRADA
             if not registro:
                 cur.execute("""
                     INSERT INTO asistencias_personal (
@@ -2182,9 +3194,6 @@ def registrar_asistencia():
                 )
                 enviar_telegram_multiple(mensaje, [CHAT_ID_ADMIN])
 
-                cur.close()
-                conn.close()
-
                 return jsonify({
                     "success": True,
                     "tipo_registro": "entrada",
@@ -2192,11 +3201,10 @@ def registrar_asistencia():
                     "nombre": nombre,
                     "clave": clave,
                     "estado": "Asistencia"
-                })
+                }), 200
 
             asistencia_id, estado_actual, hora_entrada, hora_salida = registro
 
-            # Si existe pero no tiene entrada aún
             if hora_entrada is None:
                 cur.execute("""
                     UPDATE asistencias_personal
@@ -2220,9 +3228,6 @@ def registrar_asistencia():
                 )
                 enviar_telegram_multiple(mensaje, [CHAT_ID_ADMIN])
 
-                cur.close()
-                conn.close()
-
                 return jsonify({
                     "success": True,
                     "tipo_registro": "entrada",
@@ -2230,9 +3235,8 @@ def registrar_asistencia():
                     "nombre": nombre,
                     "clave": clave,
                     "estado": "Asistencia"
-                })
+                }), 200
 
-            # Si ya tiene entrada pero no salida
             if hora_salida is None:
                 cur.execute("""
                     UPDATE asistencias_personal
@@ -2254,9 +3258,6 @@ def registrar_asistencia():
                 )
                 enviar_telegram_multiple(mensaje, [CHAT_ID_ADMIN])
 
-                cur.close()
-                conn.close()
-
                 return jsonify({
                     "success": True,
                     "tipo_registro": "salida",
@@ -2264,34 +3265,32 @@ def registrar_asistencia():
                     "nombre": nombre,
                     "clave": clave,
                     "estado": estado_actual
-                })
+                }), 200
 
-            cur.close()
-            conn.close()
             return jsonify({
                 "success": False,
                 "message": f"Entrada y salida ya registradas hoy para {nombre}",
                 "nombre": nombre,
                 "clave": clave,
                 "estado": estado_actual
-            })
+            }), 200
 
-        cur.close()
-        conn.close()
         return jsonify({
             "success": False,
-            "message": "Usuario no encontrado, debe darse de alta primero"
+            "message": "❌ Usuario no encontrado. debe darse de alta primero"
         }), 404
 
     except Exception as e:
         conn.rollback()
         print("Error al registrar asistencia:", e)
-        cur.close()
-        conn.close()
         return jsonify({
             "success": False,
-            "message": "Error al registrar asistencia"
+            "message": "❌ Error al registrar asistencia"
         }), 500
+
+    finally:
+        cur.close()
+        conn.close()
 
 # ============================
 # Avanzar ciclo escolar
@@ -2347,7 +3346,7 @@ def generar_qr(codigo):
     from flask import request, send_file
 
     # 👉 Usa tu IP local en pruebas
-    ip_local = "192.168.0.4"  # reemplaza con tu IPv4 real
+    ip_local = "192.168.0.3"  # reemplaza con tu IPv4 real
     url = f"http://{ip_local}:5000/api/registrar-asistencia?codigo_qr={codigo}"
 
     # 👉 En producción, cambia la línea anterior por tu dominio público
@@ -2508,9 +3507,16 @@ def cerrar_verificacion():
     return redirect(url_for("acceso_verificacion"))
 
 # 🚀 Ejecutar la app
+import os
+
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=False)
-
-
-
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    # Iniciar el ciclo de sincronización de Telegram en un hilo separado
+       threading.Thread(target=ciclo_telegram, daemon=True).start()
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        ssl_context=("192.168.0.3+2.pem", "192.168.0.3+2-key.pem")
+    )
 

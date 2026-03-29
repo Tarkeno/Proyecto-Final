@@ -104,11 +104,14 @@
         alert("No se pudo conectar con el servidor.");
       });
     }
+function guardarReporte() {
+  const params = new URLSearchParams(window.location.search);
+  const inicio = params.get("inicio") || "";
+  const fin = params.get("fin") || "";
 
-    function guardarReporte() {
-      alert("Puedes usar imprimir → guardar como PDF 👍");
-    }
-
+  const url = `/api/reporte_grupal_docentes/pdf?tipo=inasistencias&inicio=${encodeURIComponent(inicio)}&fin=${encodeURIComponent(fin)}`;
+  window.open(url, "_blank");
+}
     function imprimirSoloTabla() {
   const tabla = document.getElementById("solo-tabla");
 

@@ -106,8 +106,13 @@
     }
 
     function guardarReporte() {
-      alert("Puedes usar imprimir → guardar como PDF 👍");
-    }
+  const params = new URLSearchParams(window.location.search);
+  const inicio = params.get("inicio") || "";
+  const fin = params.get("fin") || "";
+
+  const url = `/api/reporte_grupal_administrativo/pdf?tipo=inasistencias&inicio=${encodeURIComponent(inicio)}&fin=${encodeURIComponent(fin)}`;
+  window.open(url, "_blank");
+}
 
 function imprimirSoloTabla() {
   const tabla = document.getElementById("solo-tabla");

@@ -61,8 +61,19 @@
 
   <script>
     function guardarReporte() {
-      alert("Función de guardar aún no implementada. Puedes exportar como PDF desde el navegador.");
-    }
+  const params = new URLSearchParams(window.location.search);
+  const inicio = params.get("inicio") || "";
+  const fin = params.get("fin") || "";
+  const matricula = params.get("matricula") || "";
+
+  let url = `/api/reporte_estudiantes/pdf?tipo=justificaciones&inicio=${encodeURIComponent(inicio)}&fin=${encodeURIComponent(fin)}`;
+
+  if (matricula) {
+    url += `&matricula=${encodeURIComponent(matricula)}`;
+  }
+
+  window.open(url, "_blank");
+}
 
     function imprimirSoloTabla() {
   const tabla = document.getElementById("solo-tabla");
