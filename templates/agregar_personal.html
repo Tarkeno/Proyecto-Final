@@ -7,6 +7,27 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='Estilos/Agregar_Personal.css') }}">
+
+  <style>
+    .table-scroll {
+      max-height: 180px;
+      overflow-y: auto;
+      overflow-x: auto;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+    }
+
+    .table-scroll thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .table td, .table th {
+      padding: 6px;
+      font-size: 0.9rem;
+    }
+  </style>
 </head>
 <body>
   <header>
@@ -61,13 +82,13 @@
                   <option value="Docente">Docente</option>
                   <option value="Administrativo">Administrativo</option>
                   <option value="Coordinador">Coordinador</option>
-                  <option value="Dirección">Dirección</option>
+                  <option value="Direccion">Direccion</option>
                 </select>
               </div>
             </div>
 
             <div class="mt-4 text-end">
-              <button type="submit" class="btn btn-primary">Agregar Personal</button>
+              <button type="submit" class="btn btn-primary" id="btnSubmitPersonal">Agregar Personal</button>
             </div>
 
             <div id="mensajeExito" class="alert alert-success mt-3 d-none" role="alert">
@@ -75,8 +96,8 @@
             </div>
           </form>
 
-          <div class="table-responsive mt-4">
-            <table class="table table-bordered table-striped" id="tablaPersonal">
+          <div class="table-scroll mt-4">
+            <table class="table table-bordered table-striped mb-0" id="tablaPersonal">
               <thead class="table-dark">
                 <tr>
                   <th>Clave</th>
@@ -101,170 +122,252 @@
   <div class="modal fade" id="qrModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
+
         <div class="modal-header">
           <h5 class="modal-title">Código QR</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
+
         <div class="modal-body text-center">
-          <img id="qrImage" src="" alt="QR" class="img-fluid">
+          <img id="qrImage" src="" alt="QR"
+               class="d-block mx-auto"
+               style="width: 180px; height: 180px; object-fit: contain;">
         </div>
+
         <div class="modal-footer">
           <a id="qrDownload" class="btn btn-success" download>Descargar QR</a>
         </div>
+
       </div>
     </div>
   </div>
 
-  <script>
-    const formulario = document.getElementById("formularioPersonal");
-    const tabla = document.getElementById("tablaPersonal").querySelector("tbody");
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-    function mostrarMensaje(texto, tipo = "success") {
-      const div = document.getElementById("mensajeGeneral");
-      div.className = `alert alert-${tipo} mb-3`;
-      div.textContent = texto;
-      div.classList.remove("d-none");
+<script>
+const formulario = document.getElementById("formularioPersonal");
+const tabla = document.getElementById("tablaPersonal").querySelector("tbody");
+const inputClave = document.getElementById("Clave");
+const btnSubmitPersonal = document.getElementById("btnSubmitPersonal");
 
-      setTimeout(() => {
-        div.classList.add("d-none");
-      }, 3500);
+function mostrarMensaje(texto, tipo = "success") {
+  Swal.fire({
+    icon: tipo === "success" ? "success" : tipo === "danger" ? "error" : "warning",
+    title: tipo === "success" ? "Éxito" : tipo === "danger" ? "Error" : "Aviso",
+    text: texto,
+    confirmButtonColor: "#dc3545"
+  });
+}
+
+function alertaConfirmacionEliminar(callback) {
+  Swal.fire({
+    title: "¿Estás seguro?",
+    text: "Esta acción no se puede deshacer",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
+    confirmButtonText: "Sí, eliminar",
+    cancelButtonText: "Cancelar"
+  }).then((result) => {
+    if (result.isConfirmed) {
+      callback();
     }
+  });
+}
 
-    function cargarPersonal() {
-      fetch("/api/listar_personal")
-        .then(res => res.json())
-        .then(data => {
-          tabla.innerHTML = "";
-          if (data.success) {
-            data.personal.forEach(p => {
-              const fila = document.createElement("tr");
-              fila.innerHTML = `
-                <td>${p.clave}</td>
-                <td>${p.nombre}</td>
-                <td>${p.apellido_paterno}</td>
-                <td>${p.apellido_materno}</td>
-                <td>${p.puesto}</td>
-                <td>
-                  <button class="btn btn-info btn-sm editar"><i class="fa-solid fa-pen"></i></button>
-                  <button class="btn btn-danger btn-sm eliminar"><i class="fa-solid fa-trash"></i></button>
-                </td>
-                <td>
-                  <button class="btn btn-sm btn-primary ver-qr" data-clave="${p.clave}">
-                    Ver QR
-                  </button>
-                </td>
-              `;
-              conectarBotones(fila, p);
-              tabla.appendChild(fila);
-            });
-          } else {
-            mostrarMensaje(data.message || "No se pudo cargar la lista de personal.", "danger");
-          }
-        })
-        .catch(error => {
-          console.error("Error al cargar personal:", error);
-          mostrarMensaje("No se pudo cargar la lista de personal.", "danger");
-        });
-    }
+function resetModoEdicion() {
+  inputClave.disabled = false;
+  btnSubmitPersonal.textContent = "Agregar Personal";
+  formulario.reset();
 
-    function conectarBotones(fila, p) {
-      fila.querySelector(".editar").addEventListener("click", () => {
-        document.getElementById("Clave").value = p.clave;
-        document.getElementById("Nombre").value = p.nombre;
-        document.getElementById("Apellido_Paterno").value = p.apellido_paterno;
-        document.getElementById("Apellido_Materno").value = p.apellido_materno;
-        document.getElementById("Puesto").value = p.puesto;
-      });
+  const filaEditando = document.querySelector("[data-editando='true']");
+  if (filaEditando) {
+    filaEditando.removeAttribute("data-editando");
+    filaEditando.removeAttribute("data-clave-original");
+  }
+}
 
-      fila.querySelector(".eliminar").addEventListener("click", () => {
-        if (confirm("¿Seguro que deseas eliminar este registro?")) {
-          fetch(`/api/eliminar_personal/${p.clave}`, {
-            method: "DELETE"
-          })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              fila.remove();
-              mostrarMensaje("Personal eliminado correctamente.", "success");
-            } else {
-              mostrarMensaje("Error al eliminar: " + data.message, "danger");
-            }
-          })
-          .catch(error => {
-            console.error("Error al eliminar personal:", error);
-            mostrarMensaje("No se pudo eliminar el registro.", "danger");
-          });
-        }
-      });
-    }
-
-    formulario.addEventListener("submit", function(e) {
-      e.preventDefault();
-
-      const Clave = document.getElementById("Clave").value.trim();
-      const Nombre = document.getElementById("Nombre").value.trim();
-      const Apellido_Paterno = document.getElementById("Apellido_Paterno").value.trim();
-      const Apellido_Materno = document.getElementById("Apellido_Materno").value.trim();
-      const Puesto = document.getElementById("Puesto").value;
-
-      if (Clave && Nombre && Apellido_Paterno && Apellido_Materno && Puesto) {
-        const datosPersonal = {
-          clave: Clave,
-          nombre: Nombre,
-          apellido_paterno: Apellido_Paterno,
-          apellido_materno: Apellido_Materno,
-          puesto: Puesto
-        };
-
-        fetch("/api/agregar_personal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(datosPersonal)
-        })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            cargarPersonal();
-            formulario.reset();
-
-            const mensaje = document.getElementById("mensajeExito");
-            mensaje.classList.remove("d-none");
-            setTimeout(() => mensaje.classList.add("d-none"), 3000);
-          } else {
-            mostrarMensaje("Error al agregar personal: " + data.message, "danger");
-          }
-        })
-        .catch(error => {
-          console.error("Error al conectar con el servidor:", error);
-          mostrarMensaje("No se pudo conectar con el servidor.", "danger");
+function cargarPersonal() {
+  fetch("/api/listar_personal")
+    .then(res => res.json())
+    .then(data => {
+      tabla.innerHTML = "";
+      if (data.success) {
+        data.personal.forEach(p => {
+          const fila = document.createElement("tr");
+          fila.innerHTML = `
+            <td>${p.clave}</td>
+            <td>${p.nombre}</td>
+            <td>${p.apellido_paterno}</td>
+            <td>${p.apellido_materno}</td>
+            <td>${p.puesto}</td>
+            <td>
+              <button class="btn btn-info btn-sm editar"><i class="fa-solid fa-pen"></i></button>
+              <button class="btn btn-danger btn-sm eliminar"><i class="fa-solid fa-trash"></i></button>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-primary ver-qr" data-clave="${p.clave}">
+                Ver QR
+              </button>
+            </td>
+          `;
+          conectarBotones(fila, p);
+          tabla.appendChild(fila);
         });
       } else {
-        mostrarMensaje("Por favor completa todos los campos.", "warning");
+        mostrarMensaje(data.message || "No se pudo cargar la lista.", "danger");
       }
+    })
+    .catch(error => {
+      console.error(error);
+      mostrarMensaje("Error al cargar personal.", "danger");
+    });
+}
+
+function conectarBotones(fila, p) {
+  fila.querySelector(".editar").addEventListener("click", () => {
+    inputClave.value = p.clave;
+    document.getElementById("Nombre").value = p.nombre;
+    document.getElementById("Apellido_Paterno").value = p.apellido_paterno;
+    document.getElementById("Apellido_Materno").value = p.apellido_materno;
+    document.getElementById("Puesto").value = p.puesto;
+
+    document.querySelectorAll("[data-editando='true']").forEach(f => {
+      f.removeAttribute("data-editando");
+      f.removeAttribute("data-clave-original");
     });
 
-    function confirmarSalida(e) {
-      e.preventDefault();
-      if (confirm("¿Estás seguro que deseas salir?")) {
-        window.location.href = "/login";
+    fila.dataset.editando = "true";
+    fila.dataset.claveOriginal = p.clave;
+
+    inputClave.disabled = true;
+    btnSubmitPersonal.textContent = "Guardar Cambios";
+  });
+
+  fila.querySelector(".eliminar").addEventListener("click", () => {
+    alertaConfirmacionEliminar(() => {
+      fetch(`/api/eliminar_personal/${p.clave}`, {
+        method: "DELETE"
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          fila.remove();
+          mostrarMensaje("Personal eliminado correctamente.", "success");
+
+          if (inputClave.value === p.clave) {
+            resetModoEdicion();
+          }
+        } else {
+          mostrarMensaje(data.message || "Error al eliminar.", "danger");
+        }
+      })
+      .catch(error => {
+        console.error(error);
+        mostrarMensaje("Error al conectar con el servidor.", "danger");
+      });
+    });
+  });
+}
+
+formulario.addEventListener("submit", function(e) {
+  e.preventDefault();
+
+  const datos = {
+    clave: inputClave.value.trim(),
+    nombre: document.getElementById("Nombre").value.trim(),
+    apellido_paterno: document.getElementById("Apellido_Paterno").value.trim(),
+    apellido_materno: document.getElementById("Apellido_Materno").value.trim(),
+    puesto: document.getElementById("Puesto").value
+  };
+
+  const filaEditando = document.querySelector("[data-editando='true']");
+
+  if (!(datos.clave && datos.nombre && datos.apellido_paterno && datos.apellido_materno && datos.puesto)) {
+    mostrarMensaje("Por favor completa todos los campos.", "warning");
+    return;
+  }
+
+  if (filaEditando) {
+    const claveOriginal = filaEditando.dataset.claveOriginal;
+
+    fetch(`/api/actualizar_personal/${claveOriginal}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        mostrarMensaje("Personal actualizado correctamente.", "success");
+        resetModoEdicion();
+        cargarPersonal();
+      } else {
+        mostrarMensaje(data.message || "Error al actualizar.", "danger");
       }
+    })
+    .catch(err => {
+      console.error(err);
+      mostrarMensaje("Error de conexión.", "danger");
+    });
+
+  } else {
+    fetch("/api/agregar_personal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        mostrarMensaje("Personal agregado correctamente.", "success");
+        resetModoEdicion();
+        cargarPersonal();
+      } else {
+        mostrarMensaje(data.message || "Error al agregar.", "danger");
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      mostrarMensaje("Error de conexión.", "danger");
+    });
+  }
+});
+
+function confirmarSalida(e) {
+  e.preventDefault();
+
+  Swal.fire({
+    title: "¿Salir del sistema?",
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
+    confirmButtonText: "Sí, salir",
+    cancelButtonText: "Cancelar"
+  }).then((result) => {
+    if (result.isConfirmed) {
+      window.location.href = "/login";
     }
+  });
+}
 
-    document.addEventListener("click", function(e) {
-      if (e.target.classList.contains("ver-qr")) {
-        const clave = e.target.getAttribute("data-clave");
+document.addEventListener("click", function(e) {
+  const boton = e.target.closest(".ver-qr");
+  if (boton) {
+    const clave = boton.getAttribute("data-clave");
 
-        document.getElementById("qrImage").src = `/api/qr/${clave}`;
-        document.getElementById("qrDownload").href = `/api/qr/${clave}?download=1`;
+    document.getElementById("qrImage").src = `/api/qr/${clave}`;
+    document.getElementById("qrDownload").href = `/api/qr/${clave}?download=1`;
 
-        const modal = new bootstrap.Modal(document.getElementById("qrModal"));
-        modal.show();
-      }
-    });
+    const modal = new bootstrap.Modal(document.getElementById("qrModal"));
+    modal.show();
+  }
+});
 
-    cargarPersonal();
-  </script>
-
+cargarPersonal();
+</script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 </body>
 </html>

@@ -49,7 +49,7 @@
           <th>Puesto</th>
           <th>Fecha</th>
           <th>Modificar Asistencia</th>
-          <th>Eliminar</th> 
+          <th>Eliminar</th>
         </tr>
       </thead>
       <tbody id="tabla-registros-docentes"></tbody>
@@ -60,7 +60,7 @@
   <div class="modal fade" id="modalJustificacionPersonal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
-        <div class="modal-header bg-warning text-white">
+        <div class="modal-header bg-danger text-white">
           <h5 class="modal-title">Motivo de justificación</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
@@ -80,15 +80,60 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-warning text-white" id="btnGuardarMotivoPersonal">Aceptar</button>
+          <button type="button" class="btn btn-danger text-white" id="btnGuardarMotivoPersonal">Aceptar</button>
         </div>
       </div>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
     let selectJustificacionActual = null;
     let motivosJustificacion = {};
+
+    function alertaExito(mensaje) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Éxito',
+        text: mensaje,
+        confirmButtonColor: '#dc3545'
+      });
+    }
+
+    function alertaError(mensaje) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: mensaje,
+        confirmButtonColor: '#dc3545'
+      });
+    }
+
+    function alertaInfo(mensaje) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Información',
+        text: mensaje,
+        confirmButtonColor: '#dc3545'
+      });
+    }
+
+    function alertaConfirmacion(callback) {
+      Swal.fire({
+        title: '¿Estás seguro?',
+        text: 'Esta acción no se puede deshacer',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          callback();
+        }
+      });
+    }
 
     function cargarAsistencias(clave, inicio, fin) {
       fetch(`/api/modificar-reporte-personal?clave=${encodeURIComponent(clave || "")}&inicio=${encodeURIComponent(inicio || "")}&fin=${encodeURIComponent(fin || "")}`)
@@ -98,7 +143,7 @@
           tbody.innerHTML = "";
 
           if (!data || data.length === 0) {
-            alert("No se encontraron registros en el rango de fechas seleccionado.");
+            alertaInfo("No se encontraron registros en el rango de fechas seleccionado.");
             return;
           }
 
@@ -109,7 +154,7 @@
               fechaFormateada = `${d}/${m}/${a}`;
             }
 
-            const id = `${registro.clave}_${registro.fecha}`;
+            const id = registro.id;
 
             if (registro.motivo_justificacion) {
               motivosJustificacion[id] = registro.motivo_justificacion;
@@ -144,7 +189,7 @@
         })
         .catch(error => {
           console.error("Error al cargar asistencias:", error);
-          alert("Hubo un problema al conectar con el servidor.");
+          alertaError("Hubo un problema al conectar con el servidor.");
         });
     }
 
@@ -187,7 +232,7 @@
       }
 
       if (!textoFinal) {
-        alert("Debes seleccionar o escribir un motivo de justificación.");
+        alertaError("Debes seleccionar o escribir un motivo de justificación.");
         return;
       }
 
@@ -216,7 +261,7 @@
       const fin = params.get("fin");
 
       if (!clave || !inicio || !fin) {
-        alert("Faltan parámetros en la URL.");
+        alertaError("Faltan parámetros en la URL.");
         return;
       }
 
@@ -231,13 +276,11 @@
 
         document.querySelectorAll(".estado-asistencia").forEach(select => {
           const id = select.dataset.id;
-          const [clave, fecha] = id.split("_");
           const estado = select.value;
 
           if (estado) {
             cambios.push({
-              clave,
-              fecha,
+              id,
               estado_asistencia: estado,
               motivo_justificacion: estado === "Justificación" ? (motivosJustificacion[id] || "") : null
             });
@@ -252,15 +295,15 @@
         .then(res => res.json())
         .then(response => {
           if (response.success) {
-            alert("Cambios guardados correctamente.");
+            alertaExito("Cambios guardados correctamente.");
             cargarAsistencias(clave, inicio, fin);
           } else {
-            alert(response.message || "No se pudieron guardar los cambios.");
+            alertaError(response.message || "No se pudieron guardar los cambios.");
           }
         })
         .catch(error => {
           console.error("Error al guardar cambios:", error);
-          alert("Hubo un problema al guardar los cambios.");
+          alertaError("Hubo un problema al guardar los cambios.");
         });
       });
 
@@ -269,32 +312,31 @@
           const fila = e.target.closest("tr");
           const id = fila.querySelector(".estado-asistencia")?.dataset.id;
 
-          if (confirm("¿Eliminar esta fila del reporte?")) {
+          alertaConfirmacion(() => {
             fila.remove();
 
             if (id) {
               delete motivosJustificacion[id];
 
-              const [clave, fecha] = id.split("_");
               fetch("/api/eliminar-registro-personal", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ clave, fecha })
+                body: JSON.stringify({ id })
               })
               .then(res => res.json())
               .then(response => {
                 if (response.success) {
-                  alert("Registro eliminado correctamente.");
+                  alertaExito("Registro eliminado correctamente.");
                 } else {
-                  alert(response.message || "No se pudo eliminar el registro.");
+                  alertaError(response.message || "No se pudo eliminar el registro.");
                 }
               })
               .catch(error => {
                 console.error("Error al eliminar registro:", error);
-                alert("Hubo un problema al eliminar el registro.");
+                alertaError("Hubo un problema al eliminar el registro.");
               });
             }
-          }
+          });
         }
       });
     });

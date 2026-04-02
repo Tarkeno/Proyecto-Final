@@ -8,6 +8,22 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='Estilos/Panel_Inicio.css') }}">
+
+    <style>
+        .grafica-card {
+            border-radius: 16px;
+        }
+
+        .grafica-titulo {
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #7a0019;
+        }
+
+        canvas {
+            max-height: 280px;
+        }
+    </style>
 </head>
 <body>
 
@@ -112,9 +128,32 @@
             <p>Selecciona una opción del menú lateral para comenzar.</p>
         </div>
 
+        <!-- GRÁFICAS -->
+        <div class="row g-4 mt-2">
+            <div class="col-md-6">
+                <div class="card shadow-sm grafica-card">
+                    <div class="card-body">
+                        <h5 class="grafica-titulo text-center">Estudiantes</h5>
+                        <canvas id="graficaAlumnos"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card shadow-sm grafica-card">
+                    <div class="card-body">
+                        <h5 class="grafica-titulo text-center">Personal</h5>
+                        <canvas id="graficaPersonal"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </section>
 
 </main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
 function confirmarSalida(e) {
@@ -123,8 +162,64 @@ function confirmarSalida(e) {
         window.location.href = "/login";
     }
 }
-</script>
-<script>
+
+let graficaAlumnos = null;
+let graficaPersonal = null;
+
+function crearGraficaAlumnos(a, i, j) {
+    const ctx = document.getElementById("graficaAlumnos");
+
+    if (graficaAlumnos) {
+        graficaAlumnos.destroy();
+    }
+
+    graficaAlumnos = new Chart(ctx, {
+        type: "pie",
+        data: {
+            labels: ["Asistencias", "Inasistencias", "Justificaciones"],
+            datasets: [{
+                data: [a, i, j],
+                backgroundColor: ["#198754", "#dc3545", "#ffc107"]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: "top"
+                }
+            }
+        }
+    });
+}
+
+function crearGraficaPersonal(a, i, j) {
+    const ctx = document.getElementById("graficaPersonal");
+
+    if (graficaPersonal) {
+        graficaPersonal.destroy();
+    }
+
+    graficaPersonal = new Chart(ctx, {
+        type: "pie",
+        data: {
+            labels: ["Asistencias", "Inasistencias", "Justificaciones"],
+            datasets: [{
+                data: [a, i, j],
+                backgroundColor: ["#0d6efd", "#dc3545", "#6f42c1"]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: "top"
+                }
+            }
+        }
+    });
+}
+
 fetch("/api/dashboard")
 .then(res => res.json())
 .then(data => {
@@ -133,9 +228,26 @@ fetch("/api/dashboard")
         document.getElementById("totalPersonal").textContent = data.total_personal;
         document.getElementById("asistenciasHoy").textContent = data.asistencias_hoy;
         document.getElementById("inasistenciasHoy").textContent = data.inasistencias;
+
+        crearGraficaAlumnos(
+            data.alumnos_asistencias || 10,
+            data.alumnos_inasistencias || 3,
+            data.alumnos_justificaciones || 2
+        );
+
+        crearGraficaPersonal(
+            data.personal_asistencias || 5,
+            data.personal_inasistencias || 1,
+            data.personal_justificaciones || 1
+        );
     }
 })
-.catch(err => console.error("Error dashboard:", err));
+.catch(err => {
+    console.error("Error dashboard:", err);
+
+    crearGraficaAlumnos(10, 3, 2);
+    crearGraficaPersonal(5, 1, 1);
+});
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>

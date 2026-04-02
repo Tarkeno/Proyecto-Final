@@ -1251,37 +1251,58 @@ def modificar_reporte():
     if not matricula or not inicio or not fin:
         return jsonify({"error": "Faltan parámetros"}), 400
 
-    conn = conectar_bd()   # tu configuración de conexión
+    conn = conectar_bd()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT a.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
-               e.carrera, e.semestre, e.grupo, a.fecha, a.estado_asistencia
-        FROM asistencias a
-        JOIN estudiantes e ON a.matricula = e.matricula
-        WHERE a.matricula = %s AND a.fecha >= %s AND a.fecha < %s::date + INTERVAL '1 day'
-        ORDER BY a.fecha
-    """, (matricula, inicio, fin))
+    try:
+        cursor.execute("""
+            SELECT 
+                a.id,
+                a.matricula,
+                e.nombre,
+                e.apellido_paterno,
+                e.apellido_materno,
+                e.carrera,
+                e.semestre,
+                e.grupo,
+                a.fecha_dia,
+                a.estado_asistencia,
+                a.motivo_justificacion
+            FROM asistencias a
+            JOIN estudiantes e ON a.matricula = e.matricula
+            WHERE a.matricula = %s
+              AND a.fecha >= %s
+              AND a.fecha < %s::date + INTERVAL '1 day'
+            ORDER BY a.fecha
+        """, (matricula, inicio, fin))
 
-    resultados = cursor.fetchall()
-    registros = []
+        resultados = cursor.fetchall()
+        registros = []
 
-    for r in resultados:
-        registros.append({
-            "matricula": r[0],
-            "nombre": r[1],
-            "apellido_paterno": r[2],
-            "apellido_materno": r[3],
-            "carrera": r[4],
-            "semestre": r[5],
-            "grupo": r[6],
-            "fecha": r[7].strftime("%Y-%m-%d"),
-            "estado_asistencia": r[8]  # ← ahora sí es estado_asistencia
-        })
+        for r in resultados:
+            registros.append({
+                "id": r[0],
+                "matricula": r[1],
+                "nombre": r[2],
+                "apellido_paterno": r[3],
+                "apellido_materno": r[4],
+                "carrera": r[5],
+                "semestre": r[6],
+                "grupo": r[7],
+                "fecha": r[8].strftime("%Y-%m-%d") if r[8] else "",
+                "estado_asistencia": r[9],
+                "motivo_justificacion": r[10]
+            })
 
-    cursor.close()
-    conn.close()
-    return jsonify(registros)
+        return jsonify(registros)
+
+    except Exception as e:
+        print("Error en /api/modificar-reporte:", e)
+        return jsonify({"error": "Error al obtener registros"}), 500
+
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.route('/buscar_estudiante', methods=['POST'])
 def buscar_estudiante():
@@ -1355,12 +1376,11 @@ def buscar_personal():
 # 🗑️ Eliminar un registro
 @app.route('/api/eliminar-registro', methods=['POST'])
 def eliminar_registro():
-    data = request.get_json()
-    matricula = data.get("matricula")
-    fecha = data.get("fecha")
+    data = request.get_json() or {}
+    asistencia_id = data.get("id")
 
-    if not matricula or not fecha:
-        return jsonify({"success": False, "message": "Faltan datos"}), 400
+    if not asistencia_id:
+        return jsonify({"success": False, "message": "Falta el ID del registro"}), 400
 
     conn = conectar_bd()
     cur = conn.cursor()
@@ -1368,20 +1388,29 @@ def eliminar_registro():
     try:
         cur.execute("""
             DELETE FROM asistencias
-            WHERE matricula = %s AND fecha = %s
-        """, (matricula, fecha))
+            WHERE id = %s
+        """, (asistencia_id,))
 
         conn.commit()
 
         if cur.rowcount > 0:
-            return jsonify({"success": True, "message": "Registro eliminado correctamente"}), 200
+            return jsonify({
+                "success": True,
+                "message": "Registro eliminado correctamente"
+            }), 200
         else:
-            return jsonify({"success": False, "message": "No se encontró registro con esa matrícula y fecha"}), 404
+            return jsonify({
+                "success": False,
+                "message": "No se encontró el registro"
+            }), 404
 
     except Exception as e:
         conn.rollback()
         print("Error al eliminar registro:", e)
-        return jsonify({"success": False, "message": "Error al eliminar registro"}), 500
+        return jsonify({
+            "success": False,
+            "message": "Error al eliminar registro"
+        }), 500
 
     finally:
         cur.close()
@@ -1909,10 +1938,20 @@ def registrar_usuario():
     cur = conn.cursor()
 
     try:
+        contraseña_encriptada = encriptar_contrasena(contraseña)
+
         cur.execute("""
             INSERT INTO usuarios (nombre, apellido_paterno, apellido_materno, usuario, contraseña, rol, es_maestro)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (nombre, apellido_paterno, apellido_materno, usuario, contraseña, rol, es_maestro))
+        """, (
+            nombre,
+            apellido_paterno,
+            apellido_materno,
+            usuario,
+            contraseña_encriptada,
+            rol,
+            es_maestro
+        ))
 
         conn.commit()
         return jsonify({"success": True, "message": "Usuario registrado correctamente"}), 201
@@ -1988,18 +2027,49 @@ def actualizar_personal(clave):
     data = request.get_json()
     conn = conectar_bd()
     cur = conn.cursor()
+
     try:
+        nombre = data.get("nombre")
+        apellido_paterno = data.get("apellido_paterno")
+        apellido_materno = data.get("apellido_materno")
+        puesto = data.get("puesto")
+
+        if not all([nombre, apellido_paterno, apellido_materno, puesto]):
+            return jsonify({
+                "success": False,
+                "message": "Faltan datos para actualizar"
+            }), 400
+
         cur.execute("""
             UPDATE personal
-            SET nombre=%s, apellido_paterno=%s, apellido_materno=%s, puesto=%s
-            WHERE clave=%s
-        """, (data["nombre"], data["apellido_paterno"], data["apellido_materno"], data["puesto"], clave))
+            SET nombre = %s,
+                apellido_paterno = %s,
+                apellido_materno = %s,
+                puesto = %s
+            WHERE clave = %s
+        """, (nombre, apellido_paterno, apellido_materno, puesto, clave))
+
         conn.commit()
-        return jsonify({"success": True, "message": "Personal actualizado correctamente"}), 200
+
+        if cur.rowcount > 0:
+            return jsonify({
+                "success": True,
+                "message": "Personal actualizado correctamente"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "No se encontró el registro"
+            }), 404
+
     except Exception as e:
         conn.rollback()
         print("Error al actualizar personal:", e)
-        return jsonify({"success": False, "message": "Error al actualizar personal"}), 500
+        return jsonify({
+            "success": False,
+            "message": "Error al actualizar personal"
+        }), 500
+
     finally:
         cur.close()
         conn.close()
@@ -2130,7 +2200,11 @@ def dashboard():
         cur.execute("SELECT COUNT(*) FROM personal")
         total_personal = cur.fetchone()[0]
 
-        # Asistencias de alumnos hoy
+        # =========================
+        # ALUMNOS HOY
+        # =========================
+
+        # Asistencias alumnos
         cur.execute("""
             SELECT COUNT(*)
             FROM asistencias
@@ -2139,18 +2213,7 @@ def dashboard():
         """)
         asistencias_alumnos_hoy = cur.fetchone()[0]
 
-        # Asistencias de personal hoy
-        cur.execute("""
-            SELECT COUNT(*)
-            FROM asistencias_personal
-            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
-              AND estado_asistencia = 'Asistencia'
-        """)
-        asistencias_personal_hoy = cur.fetchone()[0]
-
-        asistencias_hoy = asistencias_alumnos_hoy + asistencias_personal_hoy
-
-        # Inasistencias de alumnos hoy
+        # Inasistencias alumnos
         cur.execute("""
             SELECT COUNT(*)
             FROM asistencias
@@ -2159,7 +2222,29 @@ def dashboard():
         """)
         inasistencias_alumnos_hoy = cur.fetchone()[0]
 
-        # Inasistencias de personal hoy
+        # Justificaciones alumnos
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Justificación'
+        """)
+        justificaciones_alumnos_hoy = cur.fetchone()[0]
+
+        # =========================
+        # PERSONAL HOY
+        # =========================
+
+        # Asistencias personal
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias_personal
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Asistencia'
+        """)
+        asistencias_personal_hoy = cur.fetchone()[0]
+
+        # Inasistencias personal
         cur.execute("""
             SELECT COUNT(*)
             FROM asistencias_personal
@@ -2168,6 +2253,20 @@ def dashboard():
         """)
         inasistencias_personal_hoy = cur.fetchone()[0]
 
+        # Justificaciones personal
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM asistencias_personal
+            WHERE fecha_dia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+              AND estado_asistencia = 'Justificación'
+        """)
+        justificaciones_personal_hoy = cur.fetchone()[0]
+
+        # =========================
+        # TOTALES GENERALES
+        # =========================
+
+        asistencias_hoy = asistencias_alumnos_hoy + asistencias_personal_hoy
         inasistencias_hoy = inasistencias_alumnos_hoy + inasistencias_personal_hoy
 
         return jsonify({
@@ -2175,12 +2274,25 @@ def dashboard():
             "total_alumnos": total_alumnos,
             "total_personal": total_personal,
             "asistencias_hoy": asistencias_hoy,
-            "inasistencias": inasistencias_hoy
+            "inasistencias": inasistencias_hoy,
+
+            # Gráfica alumnos
+            "alumnos_asistencias": asistencias_alumnos_hoy,
+            "alumnos_inasistencias": inasistencias_alumnos_hoy,
+            "alumnos_justificaciones": justificaciones_alumnos_hoy,
+
+            # Gráfica personal
+            "personal_asistencias": asistencias_personal_hoy,
+            "personal_inasistencias": inasistencias_personal_hoy,
+            "personal_justificaciones": justificaciones_personal_hoy
         }), 200
 
     except Exception as e:
         print("Error dashboard:", e)
-        return jsonify({"success": False, "message": "Error al cargar dashboard"}), 500
+        return jsonify({
+            "success": False,
+            "message": "Error al cargar dashboard"
+        }), 500
 
     finally:
         cur.close()
@@ -2474,8 +2586,16 @@ def modificar_reporte_personal():
 
     try:
         cur.execute("""
-            SELECT p.clave, p.nombre, p.apellido_paterno, p.apellido_materno,
-                   p.puesto, ap.fecha, ap.estado_asistencia
+            SELECT 
+                ap.id,
+                p.clave,
+                p.nombre,
+                p.apellido_paterno,
+                p.apellido_materno,
+                p.puesto,
+                ap.fecha_dia,
+                ap.estado_asistencia,
+                ap.motivo_justificacion
             FROM asistencias_personal ap
             JOIN personal p ON ap.personal_id = p.id
             WHERE p.clave = %s
@@ -2489,13 +2609,15 @@ def modificar_reporte_personal():
         registros = []
         for r in resultados:
             registros.append({
-                "clave": r[0],
-                "nombre": r[1],
-                "apellido_paterno": r[2],
-                "apellido_materno": r[3],
-                "puesto": r[4],
-                "fecha": r[5].strftime("%Y-%m-%d"),
-                "estado_asistencia": r[6]
+                "id": r[0],
+                "clave": r[1],
+                "nombre": r[2],
+                "apellido_paterno": r[3],
+                "apellido_materno": r[4],
+                "puesto": r[5],
+                "fecha": r[6].strftime("%Y-%m-%d") if r[6] else "",
+                "estado_asistencia": r[7],
+                "motivo_justificacion": r[8]
             })
 
         return jsonify(registros), 200
@@ -2613,7 +2735,7 @@ def generar_reporte_personal():
 # Guardar cambios en asistencias del personal
 @app.route("/api/guardar-cambios-personal", methods=["POST"])
 def guardar_cambios_personal():
-    data = request.get_json()
+    data = request.get_json() or {}
     cambios = data.get("cambios", [])
 
     if not cambios:
@@ -2623,14 +2745,18 @@ def guardar_cambios_personal():
     cur = conn.cursor()
 
     try:
+        total_actualizados = 0
+
         for cambio in cambios:
-            clave = cambio.get("clave")
-            fecha = cambio.get("fecha")
+            asistencia_id = cambio.get("id")
             estado = cambio.get("estado_asistencia")
             motivo = cambio.get("motivo_justificacion")
 
-            if not clave or not fecha or not estado:
-                return jsonify({"success": False, "message": "Datos incompletos en un cambio"}), 400
+            if not asistencia_id or not estado:
+                return jsonify({
+                    "success": False,
+                    "message": "Datos incompletos en un cambio"
+                }), 400
 
             if estado != "Justificación":
                 motivo = None
@@ -2639,34 +2765,47 @@ def guardar_cambios_personal():
                 UPDATE asistencias_personal
                 SET estado_asistencia = %s,
                     motivo_justificacion = %s
-                WHERE personal_id = (
-                    SELECT id FROM personal WHERE clave = %s
-                )
-                  AND fecha_dia = %s
-            """, (estado, motivo, clave, fecha))
+                WHERE id = %s
+            """, (estado, motivo, asistencia_id))
+
+            total_actualizados += cur.rowcount
 
         conn.commit()
-        return jsonify({"success": True, "message": "Cambios guardados correctamente"}), 200
+
+        if total_actualizados == 0:
+            return jsonify({
+                "success": False,
+                "message": "No se encontró ningún registro para actualizar."
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Cambios guardados correctamente"
+        }), 200
 
     except Exception as e:
         conn.rollback()
         print("Error al guardar cambios del personal:", e)
-        return jsonify({"success": False, "message": "Error al guardar cambios"}), 500
+        return jsonify({
+            "success": False,
+            "message": f"Error al guardar cambios: {str(e)}"
+        }), 500
 
     finally:
         cur.close()
         conn.close()
 
-
 # Eliminar registro de asistencia del personal
 @app.route("/api/eliminar-registro-personal", methods=["POST"])
 def eliminar_registro_personal():
-    data = request.get_json()
-    clave = data.get("clave")
-    fecha = data.get("fecha")
+    data = request.get_json() or {}
+    asistencia_id = data.get("id")
 
-    if not clave or not fecha:
-        return jsonify({"success": False, "message": "Faltan parámetros"}), 400
+    if not asistencia_id:
+        return jsonify({
+            "success": False,
+            "message": "Falta el ID del registro"
+        }), 400
 
     conn = conectar_bd()
     cur = conn.cursor()
@@ -2674,22 +2813,30 @@ def eliminar_registro_personal():
     try:
         cur.execute("""
             DELETE FROM asistencias_personal
-            WHERE personal_id = (SELECT id FROM personal WHERE clave = %s)
-              AND fecha = %s
-        """, (clave, fecha))
+            WHERE id = %s
+        """, (asistencia_id,))
 
         filas_afectadas = cur.rowcount
         conn.commit()
 
         if filas_afectadas > 0:
-            return jsonify({"success": True, "message": "Registro eliminado correctamente"}), 200
+            return jsonify({
+                "success": True,
+                "message": "Registro eliminado correctamente"
+            }), 200
         else:
-            return jsonify({"success": False, "message": "No se encontró registro con esa clave y fecha"}), 404
+            return jsonify({
+                "success": False,
+                "message": "No se encontró el registro"
+            }), 404
 
     except Exception as e:
         conn.rollback()
-        print("Error al eliminar registro:", e)
-        return jsonify({"success": False, "message": "Error al eliminar registro"}), 500
+        print("Error al eliminar registro personal:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al eliminar registro"
+        }), 500
 
     finally:
         cur.close()
@@ -2733,7 +2880,7 @@ def eliminar_registro_estudiante():
 
 @app.route("/api/guardar-cambios", methods=["POST"])
 def guardar_cambios():
-    data = request.get_json()
+    data = request.get_json() or {}
     cambios = data.get("cambios", [])
 
     if not cambios:
@@ -2743,16 +2890,19 @@ def guardar_cambios():
     cur = conn.cursor()
 
     try:
+        total_actualizados = 0
+
         for cambio in cambios:
-            matricula = cambio.get("matricula")
-            fecha = cambio.get("fecha")
+            asistencia_id = cambio.get("id")
             estado = cambio.get("estado_asistencia")
             motivo = cambio.get("motivo_justificacion")
 
-            if not matricula or not fecha or not estado:
-                return jsonify({"success": False, "message": "Datos incompletos en un cambio"}), 400
+            if not asistencia_id or not estado:
+                return jsonify({
+                    "success": False,
+                    "message": "Datos incompletos en un cambio"
+                }), 400
 
-            # Si NO es justificación, borrar motivo
             if estado != "Justificación":
                 motivo = None
 
@@ -2760,23 +2910,35 @@ def guardar_cambios():
                 UPDATE asistencias
                 SET estado_asistencia = %s,
                     motivo_justificacion = %s
-                WHERE matricula = %s
-                  AND fecha_dia = %s
-            """, (estado, motivo, matricula, fecha))
+                WHERE id = %s
+            """, (estado, motivo, asistencia_id))
+
+            total_actualizados += cur.rowcount
 
         conn.commit()
-        return jsonify({"success": True, "message": "Cambios guardados correctamente"}), 200
+
+        if total_actualizados == 0:
+            return jsonify({
+                "success": False,
+                "message": "No se encontró ningún registro para actualizar."
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Cambios guardados correctamente"
+        }), 200
 
     except Exception as e:
         conn.rollback()
         print("Error al guardar cambios:", e)
-        return jsonify({"success": False, "message": "Error al guardar cambios"}), 500
+        return jsonify({
+            "success": False,
+            "message": f"Error al guardar cambios: {str(e)}"
+        }), 500
 
     finally:
         cur.close()
         conn.close()
-
-
 
 # Listar asistencias con filtros avanzados
 @app.route("/api/listar-asistencias", methods=["POST"])
@@ -3348,27 +3510,31 @@ def actualizar_grado():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 
-
-
-
 @app.route("/api/qr/<codigo>", methods=["GET"])
 def generar_qr(codigo):
-    import qrcode, io
     from flask import request, send_file
+    from qrcode.constants import ERROR_CORRECT_L
 
-    # 👉 Usa tu IP local en pruebas
-    ip_local = "192.168.0.3"  # reemplaza con tu IPv4 real
-    url = f"http://{ip_local}:5000/api/registrar-asistencia?codigo_qr={codigo}"
+    # 🔥 SOLO el código, NO URL
+    contenido = str(codigo).strip()
 
-    # 👉 En producción, cambia la línea anterior por tu dominio público
-    # url = f"https://tuservidor.com/api/registrar-asistencia?codigo_qr={codigo}"
+    qr = qrcode.QRCode(
+        version=1,  # QR pequeño
+        error_correction=ERROR_CORRECT_L,  # más rápido de leer
+        box_size=7,  # tamaño moderado (puedes probar 6-8)
+        border=3
+    )
 
-    img = qrcode.make(url)
+    qr.add_data(contenido)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
 
-    # Si viene con ?download=1 → forzar descarga
+    # Descargar
     if request.args.get("download") == "1":
         return send_file(
             buf,
@@ -3377,7 +3543,6 @@ def generar_qr(codigo):
             download_name=f"qr_{codigo}.png"
         )
     else:
-        # Mostrar inline (para <img>)
         return send_file(buf, mimetype="image/png")
 @app.route("/api/cargar-estudiantes-excel", methods=["POST"])
 def cargar_estudiantes_excel():

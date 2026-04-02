@@ -7,114 +7,244 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="stylesheet" href="{{ url_for('static', filename='Estilos/Verificacion_Usuario.css') }}" />
-</head>
-<body class="text-center p-4">
-  <a href="/cerrar-verificacion" class="btn btn-danger mb-3">
-  <i class="fa-solid fa-arrow-left"></i> Cerrar acceso
-</a>
+  <style>
+    .contenedor-principal {
+      max-width: 900px;
+      margin: auto;
+    }
 
-  <div class="titulo mb-4">
-    <strong>Escanea tu credencial o carnet para registrar tu asistencia</strong>
+    .titulo-principal {
+      font-size: 1.8rem;
+      font-weight: bold;
+      color: #7a0019;
+    }
+
+    .subtexto {
+      color: #555;
+      font-size: 1rem;
+    }
+
+    .contenedor-reader {
+      background: #fff;
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+      margin-top: 20px;
+    }
+
+    #reader {
+      width: 100%;
+      max-width: 420px;
+      margin: auto;
+    }
+
+    .resultado-card {
+      max-width: 650px;
+      margin: 20px auto 0 auto;
+      border-radius: 18px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.15);
+      overflow: hidden;
+      animation: aparecer 0.25s ease;
+    }
+
+    .resultado-header {
+      padding: 16px;
+      font-size: 1.4rem;
+      font-weight: bold;
+      color: white;
+    }
+
+    .resultado-body {
+      padding: 20px;
+      background: white;
+      font-size: 1.08rem;
+    }
+
+    .resultado-exito .resultado-header {
+      background: #198754;
+    }
+
+    .resultado-alerta .resultado-header {
+      background: #ffc107;
+      color: #212529;
+    }
+
+    .resultado-error .resultado-header {
+      background: #dc3545;
+    }
+
+    .resultado-icono {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+
+    .acciones-superiores {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+
+    @keyframes aparecer {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="text-center p-4 bg-light">
+
+  <div class="contenedor-principal">
+    <div class="acciones-superiores">
+      <a href="/cerrar-verificacion" class="btn btn-danger">
+        <i class="fa-solid fa-arrow-left"></i> Cerrar acceso
+      </a>
+
+      <button type="button" class="btn btn-dark" id="btnPantallaCompleta">
+        <i class="fa-solid fa-expand"></i> Pantalla completa
+      </button>
+    </div>
+
+    <div class="titulo mb-2 titulo-principal">
+      Escanea tu credencial o carnet para registrar tu asistencia
+    </div>
+
+    <div class="subtexto mb-3">
+      Coloca el código QR frente a la cámara para registrar entrada o salida.
+    </div>
+
+    <div class="contenedor-reader">
+      <div id="reader"></div>
+    </div>
+
+    <div id="resultado" class="mt-4"></div>
   </div>
 
-  <div id="reader" style="width:350px; margin:auto;"></div>
+  <script src="{{ url_for('static', filename='js/html5-qrcode.min.js') }}"></script>
 
-  <div id="resultado" class="mt-4"></div>
+  <script>
+    let ultimoCodigo = null;
+    let ultimoTiempo = 0;
+    let procesando = false;
 
-  <script src="https://unpkg.com/html5-qrcode"></script>
-<script>
-  let ultimoCodigo = null;
-  let ultimoTiempo = 0;
-  let procesando = false;
-
-  function mostrarResultado(html) {
-    const resultado = document.getElementById("resultado");
-    resultado.innerHTML = html;
-
-    setTimeout(() => {
-      resultado.innerHTML = "";
-    }, 2500);
-  }
-
-  function onScanSuccess(decodedText) {
-    const ahora = Date.now();
-
-    if (procesando) return;
-
-    if (decodedText === ultimoCodigo && (ahora - ultimoTiempo) < 3000) {
-      return;
-    }
-
-    ultimoCodigo = decodedText;
-    ultimoTiempo = ahora;
-    procesando = true;
-
-    let codigo = decodedText;
-
-    if (codigo.includes("codigo_qr=")) {
-      const partes = decodedText.split("?");
-      if (partes.length > 1) {
-        const urlParams = new URLSearchParams(partes[1]);
-        codigo = urlParams.get("codigo_qr");
-      }
-    }
-
-    fetch("/api/registrar-asistencia", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ codigo_qr: codigo })
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        mostrarResultado(`
-          <div class="card shadow-lg mt-4" style="max-width: 500px; margin:auto;">
-            <div class="card-body text-center">
-              <h4 class="card-title text-success">${data.message}</h4>
-              <p class="card-text">
-                <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
-                <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
-                <strong>Estado:</strong> ${data.estado || "Asistencia"} <br>
-                <strong>Fecha:</strong> ${new Date().toLocaleString()}
-              </p>
-            </div>
-          </div>
-        `);
+    document.getElementById("btnPantallaCompleta").addEventListener("click", () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          console.error("No se pudo activar pantalla completa:", err);
+        });
       } else {
-        mostrarResultado(`
-          <div class="card shadow-lg mt-4 border-warning" style="max-width: 500px; margin:auto;">
-            <div class="card-body text-center">
-              <h4 class="card-title text-warning">${data.message}</h4>
-              <p class="card-text">
-                <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
-                <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
-                <strong>Estado:</strong> ${data.estado || "N/A"} <br>
-                <strong>Fecha:</strong> ${new Date().toLocaleString()}
-              </p>
-            </div>
-          </div>
-        `);
+        document.exitFullscreen();
       }
-    })
-    .catch(err => {
-      console.error(err);
-      mostrarResultado(`
-        <div class="alert alert-danger mt-4">
-          🚨 Error al conectar con el servidor
-        </div>
-      `);
-    })
-    .finally(() => {
-      setTimeout(() => {
-        procesando = false;
-      }, 1500);
     });
-  }
 
-  new Html5QrcodeScanner("reader", {
-    fps: 10,
-    qrbox: 250
-  }).render(onScanSuccess);
-</script>
+    function mostrarResultado(html) {
+      const resultado = document.getElementById("resultado");
+      resultado.innerHTML = html;
+
+      setTimeout(() => {
+        resultado.innerHTML = "";
+      }, 2500);
+    }
+
+    function tarjetaExito(data) {
+      return `
+        <div class="resultado-card resultado-exito">
+          <div class="resultado-header">
+            <div class="resultado-icono">✅</div>
+            ${data.message}
+          </div>
+          <div class="resultado-body">
+            <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
+            <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
+            <strong>Estado:</strong> ${data.estado || "Asistencia"} <br>
+            <strong>Fecha:</strong> ${new Date().toLocaleString()}
+          </div>
+        </div>
+      `;
+    }
+
+    function tarjetaAdvertencia(data) {
+      return `
+        <div class="resultado-card resultado-alerta">
+          <div class="resultado-header">
+            <div class="resultado-icono">⚠️</div>
+            ${data.message}
+          </div>
+          <div class="resultado-body">
+            <strong>Nombre:</strong> ${data.nombre || "No disponible"} <br>
+            <strong>Matrícula/Clave:</strong> ${data.matricula || data.clave || "N/A"} <br>
+            <strong>Estado:</strong> ${data.estado || "N/A"} <br>
+            <strong>Fecha:</strong> ${new Date().toLocaleString()}
+          </div>
+        </div>
+      `;
+    }
+
+    function tarjetaError() {
+      return `
+        <div class="resultado-card resultado-error">
+          <div class="resultado-header">
+            <div class="resultado-icono">❌</div>
+            Error al conectar con el servidor
+          </div>
+          <div class="resultado-body">
+            Verifica que el sistema se encuentre en ejecución e intenta nuevamente.
+          </div>
+        </div>
+      `;
+    }
+
+    function onScanSuccess(decodedText) {
+      const ahora = Date.now();
+
+      if (procesando) return;
+
+      if (decodedText === ultimoCodigo && (ahora - ultimoTiempo) < 3000) {
+        return;
+      }
+
+      ultimoCodigo = decodedText;
+      ultimoTiempo = ahora;
+      procesando = true;
+
+      let codigo = decodedText;
+
+      if (codigo.includes("codigo_qr=")) {
+        const partes = decodedText.split("?");
+        if (partes.length > 1) {
+          const urlParams = new URLSearchParams(partes[1]);
+          codigo = urlParams.get("codigo_qr");
+        }
+      }
+
+      fetch("/api/registrar-asistencia", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codigo_qr: codigo })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          mostrarResultado(tarjetaExito(data));
+        } else {
+          mostrarResultado(tarjetaAdvertencia(data));
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        mostrarResultado(tarjetaError());
+      })
+      .finally(() => {
+        setTimeout(() => {
+          procesando = false;
+        }, 1500);
+      });
+    }
+
+    new Html5QrcodeScanner("reader", {
+      fps: 10,
+      qrbox: 250
+    }).render(onScanSuccess);
+  </script>
 </body>
 </html>

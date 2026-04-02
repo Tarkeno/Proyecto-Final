@@ -57,255 +57,298 @@
       <tbody id="tabla-registros-estudiantes"></tbody>
     </table>
   </div>
-<!-- Modal motivo de justificación -->
-<div class="modal fade" id="modalJustificacion" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header bg-warning text-white">
-        <h5 class="modal-title">Motivo de justificación</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <label for="motivoJustificacion" class="form-label">Selecciona o escribe el motivo</label>
-        <select id="motivoJustificacion" class="form-select mb-3">
-          <option value="">-- Selecciona un motivo --</option>
-          <option value="Enfermedad">Enfermedad</option>
-          <option value="Cita médica">Cita médica</option>
-          <option value="Asunto familiar">Asunto familiar</option>
-          <option value="Actividad institucional">Actividad institucional</option>
-          <option value="Permiso autorizado">Permiso autorizado</option>
-          <option value="Otro">Otro</option>
-        </select>
 
-        <textarea id="detalleJustificacion" class="form-control" rows="3" placeholder="Escribe un detalle adicional si es necesario"></textarea>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-warning text-white" id="btnGuardarMotivo">Aceptar</button>
+  <!-- Modal motivo de justificación -->
+  <div class="modal fade" id="modalJustificacion" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title">Motivo de justificación</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label for="motivoJustificacion" class="form-label">Selecciona o escribe el motivo</label>
+          <select id="motivoJustificacion" class="form-select mb-3">
+            <option value="">-- Selecciona un motivo --</option>
+            <option value="Enfermedad">Enfermedad</option>
+            <option value="Cita médica">Cita médica</option>
+            <option value="Asunto familiar">Asunto familiar</option>
+            <option value="Actividad institucional">Actividad institucional</option>
+            <option value="Permiso autorizado">Permiso autorizado</option>
+            <option value="Otro">Otro</option>
+          </select>
+
+          <textarea id="detalleJustificacion" class="form-control" rows="3" placeholder="Escribe un detalle adicional si es necesario"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn bg-danger text-white" id="btnGuardarMotivo">Aceptar</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script>
+    let selectJustificacionActual = null;
+    let motivosJustificacion = {};
 
-<script>
-let selectJustificacionActual = null;
-let motivosJustificacion = {};
+    function alertaExito(mensaje) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Éxito',
+        text: mensaje,
+        confirmButtonColor: '#dc3545'
+      });
+    }
 
-function cargarAsistencias(matricula, inicio, fin) {
-  fetch(`/api/modificar-reporte?matricula=${encodeURIComponent(matricula || "")}&inicio=${encodeURIComponent(inicio || "")}&fin=${encodeURIComponent(fin || "")}`)
-    .then(res => res.json())
-    .then(data => {
-      const tbody = document.getElementById("tabla-registros-estudiantes");
-      tbody.innerHTML = "";
+    function alertaError(mensaje) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: mensaje,
+        confirmButtonColor: '#dc3545'
+      });
+    }
 
-      if (!data || data.length === 0) {
-        alert("No se encontraron registros en el rango de fechas seleccionado.");
+    function alertaInfo(mensaje) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Información',
+        text: mensaje,
+        confirmButtonColor: '#dc3545'
+      });
+    }
+
+    function alertaConfirmacion(callback) {
+      Swal.fire({
+        title: '¿Estás seguro?',
+        text: 'Esta acción no se puede deshacer',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          callback();
+        }
+      });
+    }
+
+    function cargarAsistencias(matricula, inicio, fin) {
+      fetch(`/api/modificar-reporte?matricula=${encodeURIComponent(matricula || "")}&inicio=${encodeURIComponent(inicio || "")}&fin=${encodeURIComponent(fin || "")}`)
+        .then(res => res.json())
+        .then(data => {
+          const tbody = document.getElementById("tabla-registros-estudiantes");
+          tbody.innerHTML = "";
+
+          if (!data || data.length === 0) {
+            alertaInfo("No se encontraron registros en el rango de fechas seleccionado.");
+            return;
+          }
+
+          data.forEach(registro => {
+            let fechaFormateada = "Fecha inválida";
+            if (registro.fecha && /^\d{4}-\d{2}-\d{2}$/.test(registro.fecha)) {
+              const [a, m, d] = registro.fecha.split("-");
+              fechaFormateada = `${d}/${m}/${a}`;
+            }
+
+            const id = registro.id;
+
+            if (registro.motivo_justificacion) {
+              motivosJustificacion[id] = registro.motivo_justificacion;
+            }
+
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+              <td>${registro.matricula}</td>
+              <td>${registro.nombre}</td>
+              <td>${registro.apellido_paterno}</td>
+              <td>${registro.apellido_materno}</td>
+              <td>${registro.carrera}</td>
+              <td>${registro.semestre}</td>
+              <td>${registro.grupo}</td>
+              <td>${fechaFormateada}</td>
+              <td>
+                <select class="form-select estado-asistencia" data-id="${id}">
+                  <option value="">-- Selecciona --</option>
+                  <option value="Justificación" ${registro.estado_asistencia === "Justificación" ? "selected" : ""}>Justificación</option>
+                  <option value="Asistencia" ${registro.estado_asistencia === "Asistencia" ? "selected" : ""}>Asistencia</option>
+                  <option value="Inasistencia" ${registro.estado_asistencia === "Inasistencia" ? "selected" : ""}>Inasistencia</option>
+                </select>
+              </td>
+              <td>
+                <button class="btn btn-sm btn-danger eliminar-fila">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </td>
+            `;
+            tbody.appendChild(fila);
+          });
+
+          conectarEventosJustificacion();
+        })
+        .catch(error => {
+          console.error("Error al cargar asistencias:", error);
+          const tbody = document.getElementById("tabla-registros-estudiantes");
+          if (tbody.innerHTML.trim() === "") {
+            alertaError("No se pudo conectar con el servidor. Intenta más tarde.");
+          }
+        });
+    }
+
+    function conectarEventosJustificacion() {
+      document.querySelectorAll(".estado-asistencia").forEach(select => {
+        select.addEventListener("change", function () {
+          const id = this.dataset.id;
+
+          if (this.value === "Justificación") {
+            selectJustificacionActual = this;
+
+            const motivoGuardado = motivosJustificacion[id] || "";
+            document.getElementById("motivoJustificacion").value = "";
+            document.getElementById("detalleJustificacion").value = motivoGuardado;
+
+            const modal = new bootstrap.Modal(document.getElementById("modalJustificacion"));
+            modal.show();
+          } else {
+            delete motivosJustificacion[id];
+          }
+        });
+      });
+    }
+
+    document.getElementById("btnGuardarMotivo").addEventListener("click", function () {
+      if (!selectJustificacionActual) return;
+
+      const id = selectJustificacionActual.dataset.id;
+      const motivo = document.getElementById("motivoJustificacion").value.trim();
+      const detalle = document.getElementById("detalleJustificacion").value.trim();
+
+      let textoFinal = "";
+
+      if (motivo && detalle) {
+        textoFinal = `${motivo} - ${detalle}`;
+      } else if (motivo) {
+        textoFinal = motivo;
+      } else if (detalle) {
+        textoFinal = detalle;
+      }
+
+      if (!textoFinal) {
+        alertaError("Debes seleccionar o escribir un motivo de justificación.");
         return;
       }
 
-      data.forEach(registro => {
-        let fechaFormateada = "Fecha inválida";
-        if (registro.fecha && /^\d{4}-\d{2}-\d{2}$/.test(registro.fecha)) {
-          const [a, m, d] = registro.fecha.split("-");
-          fechaFormateada = `${d}/${m}/${a}`;
+      motivosJustificacion[id] = textoFinal;
+
+      const modal = bootstrap.Modal.getInstance(document.getElementById("modalJustificacion"));
+      modal.hide();
+    });
+
+    document.getElementById("modalJustificacion").addEventListener("hidden.bs.modal", function () {
+      if (selectJustificacionActual) {
+        const id = selectJustificacionActual.dataset.id;
+
+        if (!motivosJustificacion[id] && selectJustificacionActual.value === "Justificación") {
+          selectJustificacionActual.value = "";
         }
+      }
 
-        const id = `${registro.matricula}_${registro.fecha}`;
+      selectJustificacionActual = null;
+    });
 
-        if (registro.motivo_justificacion) {
-          motivosJustificacion[id] = registro.motivo_justificacion;
-        }
+    window.addEventListener("DOMContentLoaded", function () {
+      const params = new URLSearchParams(window.location.search);
+      const matricula = params.get("matricula");
+      const inicio = params.get("inicio");
+      const fin = params.get("fin");
 
-        const fila = document.createElement("tr");
-        fila.innerHTML = `
-          <td>${registro.matricula}</td>
-          <td>${registro.nombre}</td>
-          <td>${registro.apellido_paterno}</td>
-          <td>${registro.apellido_materno}</td>
-          <td>${registro.carrera}</td>
-          <td>${registro.semestre}</td>
-          <td>${registro.grupo}</td>
-          <td>${fechaFormateada}</td>
-          <td>
-            <select class="form-select estado-asistencia" data-id="${id}">
-              <option value="">-- Selecciona --</option>
-              <option value="Justificación" ${registro.estado_asistencia === "Justificación" ? "selected" : ""}>Justificación</option>
-              <option value="Asistencia" ${registro.estado_asistencia === "Asistencia" ? "selected" : ""}>Asistencia</option>
-              <option value="Inasistencia" ${registro.estado_asistencia === "Inasistencia" ? "selected" : ""}>Inasistencia</option>
-            </select>
-          </td>
-          <td>
-            <button class="btn btn-sm btn-danger eliminar-fila">
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </td>
-        `;
-        tbody.appendChild(fila);
+      if (!matricula || !inicio || !fin) {
+        alertaError("Faltan parámetros en la URL.");
+        return;
+      }
+
+      cargarAsistencias(matricula, inicio, fin);
+
+      document.getElementById("btnActualizar").addEventListener("click", function () {
+        cargarAsistencias(matricula, inicio, fin);
       });
 
-      conectarEventosJustificacion();
-    })
-    .catch(error => {
-      console.error("Error al cargar asistencias:", error);
-      const tbody = document.getElementById("tabla-registros-estudiantes");
-      if (tbody.innerHTML.trim() === "") {
-        alert("No se pudo conectar con el servidor. Intenta más tarde.");
-      }
-    });
-}
+      document.getElementById("btnGuardar").addEventListener("click", function () {
+        const cambios = [];
 
-function conectarEventosJustificacion() {
-  document.querySelectorAll(".estado-asistencia").forEach(select => {
-    select.addEventListener("change", function () {
-      const id = this.dataset.id;
+        document.querySelectorAll(".estado-asistencia").forEach(select => {
+          const id = select.dataset.id;
+          const estado = select.value;
 
-      if (this.value === "Justificación") {
-        selectJustificacionActual = this;
-
-        const motivoGuardado = motivosJustificacion[id] || "";
-        document.getElementById("motivoJustificacion").value = "";
-        document.getElementById("detalleJustificacion").value = motivoGuardado;
-
-        const modal = new bootstrap.Modal(document.getElementById("modalJustificacion"));
-        modal.show();
-      } else {
-        delete motivosJustificacion[id];
-      }
-    });
-  });
-}
-
-document.getElementById("btnGuardarMotivo").addEventListener("click", function () {
-  if (!selectJustificacionActual) return;
-
-  const id = selectJustificacionActual.dataset.id;
-  const motivo = document.getElementById("motivoJustificacion").value.trim();
-  const detalle = document.getElementById("detalleJustificacion").value.trim();
-
-  let textoFinal = "";
-
-  if (motivo && detalle) {
-    textoFinal = `${motivo} - ${detalle}`;
-  } else if (motivo) {
-    textoFinal = motivo;
-  } else if (detalle) {
-    textoFinal = detalle;
-  }
-
-  if (!textoFinal) {
-    alert("Debes seleccionar o escribir un motivo de justificación.");
-    return;
-  }
-
-  motivosJustificacion[id] = textoFinal;
-
-  const modal = bootstrap.Modal.getInstance(document.getElementById("modalJustificacion"));
-  modal.hide();
-});
-
-document.getElementById("modalJustificacion").addEventListener("hidden.bs.modal", function () {
-  if (selectJustificacionActual) {
-    const id = selectJustificacionActual.dataset.id;
-
-    if (!motivosJustificacion[id] && selectJustificacionActual.value === "Justificación") {
-      selectJustificacionActual.value = "";
-    }
-  }
-
-  selectJustificacionActual = null;
-});
-
-window.addEventListener("DOMContentLoaded", function () {
-  const params = new URLSearchParams(window.location.search);
-  const matricula = params.get("matricula");
-  const inicio = params.get("inicio");
-  const fin = params.get("fin");
-
-  if (!matricula || !inicio || !fin) {
-    alert("Faltan parámetros en la URL.");
-    return;
-  }
-
-  cargarAsistencias(matricula, inicio, fin);
-
-  document.getElementById("btnActualizar").addEventListener("click", function () {
-    cargarAsistencias(matricula, inicio, fin);
-  });
-
-  document.getElementById("btnGuardar").addEventListener("click", function () {
-    const cambios = [];
-
-    document.querySelectorAll(".estado-asistencia").forEach(select => {
-      const id = select.dataset.id;
-      const [matricula, fecha] = id.split("_");
-      const estado = select.value;
-
-      if (estado) {
-        cambios.push({
-          matricula,
-          fecha,
-          estado_asistencia: estado,
-          motivo_justificacion: estado === "Justificación" ? (motivosJustificacion[id] || "") : null
+          if (estado) {
+            cambios.push({
+              id,
+              estado_asistencia: estado,
+              motivo_justificacion: estado === "Justificación" ? (motivosJustificacion[id] || "") : null
+            });
+          }
         });
-      }
-    });
 
-    fetch("/api/guardar-cambios", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cambios })
-    })
-    .then(res => res.json())
-    .then(response => {
-      if (response.success) {
-        alert("Cambios guardados correctamente.");
-        cargarAsistencias(matricula, inicio, fin);
-      } else {
-        alert(response.message || "No se pudieron guardar los cambios.");
-      }
-    })
-    .catch(error => {
-      console.error("Error al guardar cambios:", error);
-      alert("Hubo un problema al guardar los cambios.");
-    });
-  });
+        fetch("/api/guardar-cambios", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cambios })
+        })
+        .then(res => res.json())
+        .then(response => {
+          if (response.success) {
+            alertaExito("Cambios guardados correctamente.");
+            cargarAsistencias(matricula, inicio, fin);
+          } else {
+            alertaError(response.message || "No se pudieron guardar los cambios.");
+          }
+        })
+        .catch(error => {
+          console.error("Error al guardar cambios:", error);
+          alertaError("Hubo un problema al guardar los cambios.");
+        });
+      });
 
-  document.getElementById("tabla-registros-estudiantes").addEventListener("click", function (e) {
-    if (e.target.closest(".eliminar-fila")) {
-      const fila = e.target.closest("tr");
-      const id = fila.querySelector(".estado-asistencia")?.dataset.id;
+      document.getElementById("tabla-registros-estudiantes").addEventListener("click", function (e) {
+        if (e.target.closest(".eliminar-fila")) {
+          const fila = e.target.closest("tr");
+          const id = fila.querySelector(".estado-asistencia")?.dataset.id;
 
-      if (confirm("¿Eliminar esta fila del reporte?")) {
-        fila.remove();
+          alertaConfirmacion(() => {
+            fila.remove();
 
-        if (id) {
-          delete motivosJustificacion[id];
+            if (id) {
+              delete motivosJustificacion[id];
 
-          const [matricula, fecha] = id.split("_");
-          fetch("/api/eliminar-registro", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ matricula, fecha })
-          })
-          .then(res => res.json())
-          .then(response => {
-            if (response.success) {
-              alert("Registro eliminado correctamente.");
-            } else {
-              alert(response.message || "No se pudo eliminar el registro.");
+              fetch("/api/eliminar-registro", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id })
+              })
+              .then(res => res.json())
+              .then(response => {
+                if (response.success) {
+                  alertaExito("Registro eliminado correctamente.");
+                } else {
+                  alertaError(response.message || "No se pudo eliminar el registro.");
+                }
+              })
+              .catch(error => {
+                console.error("Error al eliminar registro:", error);
+                alertaError("Hubo un problema al eliminar el registro.");
+              });
             }
-          })
-          .catch(error => {
-            console.error("Error al eliminar registro:", error);
-            alert("Hubo un problema al eliminar el registro.");
           });
         }
-      }
-    }
-  });
-});
-</script>
+      });
+    });
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
