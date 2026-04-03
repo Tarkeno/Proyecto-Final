@@ -2185,6 +2185,127 @@ def vista_modificar_reporte_estudiantes():
 def vista_panel_inicio():
     return render_template("panel_inicio.html")
 
+@app.route("/administrar-usuarios")
+@login_requerido
+def administrar_usuarios():
+    if not session.get("es_maestro"):
+        return redirect("/panel-inicio")
+
+    return render_template("administrar_usuarios.html")
+
+@app.route("/api/listar_usuarios", methods=["GET"])
+@login_requerido
+def listar_usuarios():
+    if not session.get("es_maestro"):
+        return jsonify({
+            "success": False,
+            "message": "Acceso no autorizado"
+        }), 403
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT id, nombre, apellido_paterno, apellido_materno, usuario, rol, es_maestro
+            FROM usuarios
+            ORDER BY id ASC
+        """)
+        resultados = cur.fetchall()
+
+        usuarios = []
+        for u in resultados:
+            usuarios.append({
+                "id": u[0],
+                "nombre": u[1],
+                "apellido_paterno": u[2],
+                "apellido_materno": u[3],
+                "usuario": u[4],
+                "rol": u[5],
+                "es_maestro": u[6]
+            })
+
+        return jsonify({
+            "success": True,
+            "usuarios": usuarios
+        }), 200
+
+    except Exception as e:
+        print("Error al listar usuarios:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al listar usuarios"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/api/eliminar_usuario/<int:id_usuario>", methods=["DELETE"])
+@login_requerido
+def eliminar_usuario(id_usuario):
+    if not session.get("es_maestro"):
+        return jsonify({
+            "success": False,
+            "message": "Acceso no autorizado"
+        }), 403
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        # Buscar el usuario que intenta borrar
+        cur.execute("""
+            SELECT id, usuario, es_maestro
+            FROM usuarios
+            WHERE id = %s
+        """, (id_usuario,))
+        usuario_objetivo = cur.fetchone()
+
+        if not usuario_objetivo:
+            return jsonify({
+                "success": False,
+                "message": "Usuario no encontrado"
+            }), 404
+
+        # Evitar borrar cuentas master
+        if usuario_objetivo[2] == True:
+            return jsonify({
+                "success": False,
+                "message": "No se puede eliminar una cuenta maestra"
+            }), 403
+
+        # Evitar que el master se borre a sí mismo, por seguridad extra
+        if usuario_objetivo[1] == session.get("usuario"):
+            return jsonify({
+                "success": False,
+                "message": "No puedes eliminar tu propia cuenta"
+            }), 403
+
+        cur.execute("""
+            DELETE FROM usuarios
+            WHERE id = %s
+        """, (id_usuario,))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Usuario eliminado correctamente"
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al eliminar usuario:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al eliminar usuario"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route("/api/dashboard", methods=["GET"])
 @login_requerido
 def dashboard():

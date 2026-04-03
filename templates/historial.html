@@ -53,6 +53,11 @@
                     <a href="/verificacion-usuarios" class="list-group-item list-group-item-action">
                         <i class="fa-solid fa-check me-2"></i> Verificación
                     </a>
+                     {% if session.get('es_maestro') %}
+          <a href="/administrar-usuarios" class="list-group-item list-group-item-action">
+                    <i class="fa-solid fa-users-gear me-2"></i> Administrar Usuarios
+                </a>
+          {% endif %}
                     <a href="#" class="list-group-item list-group-item-action" onclick="confirmarSalida(event)">
                         <i class="fa-solid fa-sign-out-alt me-2"></i> Salir
                     </a>
@@ -143,7 +148,7 @@
             </div>
         </div>
     </main>
-
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         function mostrarMensaje(texto, tipo = "success", idContenedor = "mensajeGeneral") {
             const div = document.getElementById(idContenedor);
@@ -157,11 +162,22 @@
         }
 
         function confirmarSalida(e) {
-            e.preventDefault();
-            if (confirm("¿Estás seguro que deseas salir?")) {
-                window.location.href = "/login";
-            }
-        }
+  e.preventDefault();
+
+  Swal.fire({
+    title: '¿Salir del sistema?',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#dc3545',
+    cancelButtonColor: '#6c757d',
+    confirmButtonText: 'Sí, salir',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      window.location.href = "/login";
+    }
+  });
+}
 
         fetch("/api/asistencias-hoy")
             .then(res => res.json())
