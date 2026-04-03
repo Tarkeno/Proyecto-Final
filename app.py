@@ -1372,6 +1372,50 @@ def buscar_personal():
     else:
         return jsonify({"error": "Personal no encontrado"}), 404
 
+@app.route("/api/eliminar_estudiante", methods=["POST"])
+def eliminar_estudiante():
+    data = request.get_json()
+    matricula = data.get("matricula")
+
+    if not matricula:
+        return jsonify({
+            "success": False,
+            "message": "Falta la matrícula"
+        }), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            DELETE FROM estudiantes
+            WHERE matricula = %s
+        """, (matricula,))
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            return jsonify({
+                "success": True,
+                "message": "Estudiante eliminado correctamente"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "No se encontró el estudiante"
+            }), 404
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al eliminar estudiante:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al eliminar estudiante"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
 
 # 🗑️ Eliminar un registro
 @app.route('/api/eliminar-registro', methods=['POST'])

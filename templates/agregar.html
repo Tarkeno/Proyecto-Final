@@ -92,7 +92,7 @@
             </div>
 
             <div class="mt-4 text-end">
-              <button type="submit" class="btn btn-primary">Guardar Alumno</button>
+              <button type="submit" class="btn btn-primary" id="btnSubmitAlumno">Guardar Alumno</button>
 
               <button type="button" class="btn btn-primary ms-2" id="btnSincronizarTelegram">
                 <i class="fa-brands fa-telegram me-2"></i> Sincronizar Telegram
@@ -290,47 +290,71 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-  <script>
-    const formulario = document.getElementById("formularioPersona");
-    const tabla = document.getElementById("tablaPersonas").querySelector("tbody");
-    const busqueda = document.getElementById("busqueda");
-    const mensajeExito = document.getElementById("mensajeExito");
-    const mensajeError = document.getElementById("mensajeError");
+<script>
+const formulario = document.getElementById("formularioPersona");
+const tabla = document.getElementById("tablaPersonas").querySelector("tbody");
+const busqueda = document.getElementById("busqueda");
+const btnSubmitAlumno = document.getElementById("btnSubmitAlumno");
 
-    function mostrarExito(texto) {
-      mensajeExito.textContent = texto;
-      mensajeExito.classList.remove("d-none");
-      mensajeError.classList.add("d-none");
-      setTimeout(() => mensajeExito.classList.add("d-none"), 3000);
+// ALERTAS BONITAS
+function mostrarExito(texto) {
+  Swal.fire({
+    icon: "success",
+    title: "Éxito",
+    text: texto,
+    confirmButtonColor: "#198754"
+  });
+}
+
+function mostrarError(texto) {
+  Swal.fire({
+    icon: "error",
+    title: "Error",
+    text: texto,
+    confirmButtonColor: "#dc3545"
+  });
+}
+
+function confirmarAccion(titulo, texto, callback) {
+  Swal.fire({
+    title: titulo,
+    text: texto,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
+    confirmButtonText: "Sí, continuar",
+    cancelButtonText: "Cancelar"
+  }).then((result) => {
+    if (result.isConfirmed) {
+      callback();
     }
+  });
+}
 
-    function mostrarError(texto) {
-      mensajeError.textContent = texto;
-      mensajeError.classList.remove("d-none");
-      mensajeExito.classList.add("d-none");
-      setTimeout(() => mensajeError.classList.add("d-none"), 4000);
-    }
+// BUSCADOR
+busqueda.addEventListener("keyup", function() {
+  const filtro = busqueda.value.toLowerCase();
+  const filas = tabla.getElementsByTagName("tr");
 
-    busqueda.addEventListener("keyup", function() {
-      const filtro = busqueda.value.toLowerCase();
-      const filas = tabla.getElementsByTagName("tr");
-      for (let fila of filas) {
-        const texto = fila.innerText.toLowerCase();
-        fila.style.display = texto.includes(filtro) ? "" : "none";
-      }
-    });
+  for (let fila of filas) {
+    const texto = fila.innerText.toLowerCase();
+    fila.style.display = texto.includes(filtro) ? "" : "none";
+  }
+});
 
-    function confirmarSalida(e) {
+// CERRAR SESIÓN BONITO
+function confirmarSalida(e) {
   e.preventDefault();
 
   Swal.fire({
-    title: '¿Salir del sistema?',
-    icon: 'question',
+    title: "¿Salir del sistema?",
+    icon: "question",
     showCancelButton: true,
-    confirmButtonColor: '#dc3545',
-    cancelButtonColor: '#6c757d',
-    confirmButtonText: 'Sí, salir',
-    cancelButtonText: 'Cancelar'
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
+    confirmButtonText: "Sí, salir",
+    cancelButtonText: "Cancelar"
   }).then((result) => {
     if (result.isConfirmed) {
       window.location.href = "/login";
@@ -338,368 +362,427 @@
   });
 }
 
-    function eliminarEstudiante(matricula, fila) {
-      if (confirm("¿Seguro que deseas eliminar este estudiante?")) {
-        fetch("/api/eliminar_estudiante", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matricula })
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            fila.remove();
-            mostrarExito("✅ Estudiante eliminado correctamente.");
-          } else {
-            mostrarError("❌ " + (data.message || "No se pudo eliminar el estudiante."));
-          }
-        })
-        .catch(err => {
-          console.error("Error al eliminar:", err);
-          mostrarError("❌ No se pudo conectar con el servidor.");
-        });
-      }
-    }
+// RESET MODO EDICIÓN
+function resetModoEdicionAlumno() {
+  btnSubmitAlumno.textContent = "Guardar Alumno";
+  formulario.reset();
 
-    function conectarBotones(fila, est) {
-      fila.querySelector(".eliminar").addEventListener("click", () =>
-        eliminarEstudiante(est.matricula, fila)
-      );
+  document.getElementById("Matricula").disabled = false;
 
-      fila.querySelector(".editar").addEventListener("click", () => {
-        document.getElementById("Matricula").value = est.matricula;
-        document.getElementById("Nombre").value = est.nombre;
-        document.getElementById("Apellido_Paterno").value = est.apellido_paterno;
-        document.getElementById("Apellido_Materno").value = est.apellido_materno;
-        document.getElementById("Carrera").value = est.carrera;
-        document.getElementById("Semestre").value = est.semestre;
-        document.getElementById("Grupo").value = est.grupo;
-        document.getElementById("Chat_ID_Telegram").value = est.chat_id_telegram || "";
-        fila.dataset.editing = "true";
-      });
-    }
+  const filaEditando = tabla.querySelector("[data-editing='true']");
+  if (filaEditando) {
+    filaEditando.removeAttribute("data-editing");
+  }
+}
 
-    formulario.addEventListener("submit", function(e) {
-      e.preventDefault();
-
-      const chatid = document.getElementById("Chat_ID_Telegram").value.trim();
-
-      if (chatid && !/^[0-9]+$/.test(chatid)) {
-        mostrarError("❌ El Chat ID de Telegram debe contener solo números.");
-        return;
-      }
-
-      const datosAlumno = {
-        matricula: document.getElementById("Matricula").value.trim(),
-        nombre: document.getElementById("Nombre").value.trim(),
-        apellido_paterno: document.getElementById("Apellido_Paterno").value.trim(),
-        apellido_materno: document.getElementById("Apellido_Materno").value.trim(),
-        carrera: document.getElementById("Carrera").value.trim(),
-        semestre: document.getElementById("Semestre").value.trim(),
-        grupo: document.getElementById("Grupo").value.trim(),
-        chat_id_telegram: document.getElementById("Chat_ID_Telegram").value.trim()
-      };
-
-      const filaEditando = tabla.querySelector("[data-editing='true']");
-
-      if (filaEditando) {
-        fetch("/api/actualizar_estudiante", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(datosAlumno)
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            filaEditando.removeAttribute("data-editing");
-            formulario.reset();
-            cargarEstudiantes();
-            mostrarExito("✅ Estudiante actualizado correctamente.");
-          } else {
-            mostrarError("❌ " + (data.message || "No se pudo actualizar el estudiante."));
-          }
-        })
-        .catch(err => {
-          console.error("Error al actualizar:", err);
-          mostrarError("❌ No se pudo conectar con el servidor.");
-        });
-      } else {
-        fetch("/api/agregar_estudiante", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(datosAlumno)
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            formulario.reset();
-            cargarEstudiantes();
-            mostrarExito("✅ Estudiante guardado con éxito.");
-          } else {
-            mostrarError("❌ " + (data.message || "No se pudo agregar el estudiante."));
-          }
-        })
-        .catch(err => {
-          console.error("Error al agregar:", err);
-          mostrarError("❌ No se pudo conectar con el servidor.");
-        });
-      }
-    });
-
-    function cargarEstudiantes() {
-      fetch("/api/listar_estudiantes")
-        .then(res => res.json())
-        .then(data => {
-          tabla.innerHTML = "";
-          if (data.success) {
-            data.estudiantes.forEach(est => {
-              const fila = document.createElement("tr");
-              fila.innerHTML = `
-                <td>${est.matricula}</td>
-                <td>${est.nombre}</td>
-                <td>${est.apellido_paterno}</td>
-                <td>${est.apellido_materno}</td>
-                <td>${est.carrera}</td>
-                <td>${est.semestre}</td>
-                <td>${est.grupo}</td>
-                <td>
-                  <button class="btn btn-info btn-sm editar"><i class="fa-solid fa-pen"></i></button>
-                  <button class="btn btn-danger btn-sm eliminar"><i class="fa-solid fa-trash"></i></button>
-                </td>
-                <td>
-                  <button class="btn btn-sm btn-primary ver-qr" data-clave="${est.matricula}">Ver QR</button>
-                </td>`;
-              conectarBotones(fila, est);
-              tabla.appendChild(fila);
-            });
-          } else {
-            mostrarError("❌ " + (data.message || "No se pudo cargar la lista de estudiantes."));
-          }
-        })
-        .catch(error => {
-          console.error("Error al cargar estudiantes:", error);
-          mostrarError("❌ No se pudo cargar la lista de estudiantes.");
-        });
-    }
-
-    window.onload = cargarEstudiantes;
-
-    document.addEventListener("click", function(e) {
-      const botonQR = e.target.closest(".ver-qr");
-      if (botonQR) {
-        const clave = botonQR.getAttribute("data-clave");
-        document.getElementById("qrImage").src = `/api/qr/${clave}`;
-        document.getElementById("qrDownload").href = `/api/qr/${clave}?download=1`;
-
-        const modal = new bootstrap.Modal(document.getElementById("qrModal"));
-        modal.show();
-      }
-    });
-
-    document.getElementById("formExcel").addEventListener("submit", function(e) {
-      e.preventDefault();
-
-      const formData = new FormData(this);
-      const progressContainer = document.getElementById("progressContainer");
-      const progressBar = document.getElementById("progressBar");
-      const resultado = document.getElementById("resultadoCargaExcel");
-      const tablaErroresContainer = document.getElementById("tablaErroresContainer");
-      const tablaErroresExcel = document.getElementById("tablaErroresExcel");
-
-      progressContainer.classList.remove("d-none");
-      resultado.classList.add("d-none");
-      tablaErroresContainer.classList.add("d-none");
-      tablaErroresExcel.innerHTML = "";
-      resultado.textContent = "";
-      progressBar.style.width = "0%";
-      progressBar.textContent = "0%";
-
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/cargar-estudiantes-excel", true);
-
-      xhr.upload.addEventListener("progress", function(e) {
-        if (e.lengthComputable) {
-          const porcentaje = Math.round((e.loaded / e.total) * 100);
-          progressBar.style.width = porcentaje + "%";
-          progressBar.textContent = porcentaje + "%";
-        }
-      });
-
-      xhr.onload = function() {
-        if (xhr.status === 200) {
-          const data = JSON.parse(xhr.responseText);
-
-          if (data.success) {
-            progressBar.style.width = "100%";
-            progressBar.textContent = "100%";
-
-            resultado.classList.remove("d-none");
-            resultado.className = "alert alert-success mt-3";
-            resultado.innerHTML = `
-              Insertados: <strong>${data.insertados}</strong><br>
-              Actualizados: <strong>${data.actualizados}</strong><br>
-              Errores: <strong>${data.errores.length}</strong><br>
-              Total procesados: <strong>${data.total}</strong>
-            `;
-
-            if (data.errores && data.errores.length > 0) {
-              tablaErroresContainer.classList.remove("d-none");
-
-              data.errores.forEach(err => {
-                const fila = document.createElement("tr");
-                fila.innerHTML = `
-                  <td>${err.matricula || "-"}</td>
-                  <td>${err.error || "Error desconocido"}</td>
-                `;
-                tablaErroresExcel.appendChild(fila);
-              });
-            }
-
-            cargarEstudiantes();
-
-            setTimeout(() => {
-              bootstrap.Modal.getInstance(document.getElementById("excelModal")).hide();
-              document.getElementById("formExcel").reset();
-              progressContainer.classList.add("d-none");
-              resultado.classList.add("d-none");
-              tablaErroresContainer.classList.add("d-none");
-              tablaErroresExcel.innerHTML = "";
-              progressBar.style.width = "0%";
-              progressBar.textContent = "0%";
-            }, 3500);
-          } else {
-            resultado.classList.remove("d-none");
-            resultado.className = "alert alert-danger mt-3";
-            resultado.textContent = "Error: " + data.message;
-          }
-        } else {
-          resultado.classList.remove("d-none");
-          resultado.className = "alert alert-danger mt-3";
-          resultado.textContent = "Error al subir el archivo.";
-        }
-      };
-
-      xhr.onerror = function() {
-        resultado.classList.remove("d-none");
-        resultado.className = "alert alert-danger mt-3";
-        resultado.textContent = "No se pudo conectar con el servidor.";
-      };
-
-      xhr.send(formData);
-    });
-
-    document.getElementById("formMasterLogin").addEventListener("submit", function(e) {
-      e.preventDefault();
-      const usuario = document.getElementById("masterUser").value.trim();
-      const contraseña = document.getElementById("masterPass").value.trim();
-
-      fetch("/api/validar-master", {
+// ELIMINAR BONITO
+function eliminarEstudiante(matricula, fila) {
+  Swal.fire({
+    title: "¿Eliminar estudiante?",
+    text: "Esta acción no se puede deshacer",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
+    confirmButtonText: "Sí, eliminar",
+    cancelButtonText: "Cancelar"
+  }).then((result) => {
+    if (result.isConfirmed) {
+      fetch("/api/eliminar_estudiante", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usuario, contraseña })
+        body: JSON.stringify({ matricula })
       })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          bootstrap.Modal.getInstance(document.getElementById("masterLoginModal")).hide();
-          new bootstrap.Modal(document.getElementById("resetModal")).show();
+          fila.remove();
+
+          Swal.fire({
+            icon: "success",
+            title: "Eliminado",
+            text: "El estudiante fue eliminado correctamente",
+            timer: 2000,
+            showConfirmButton: false
+          });
         } else {
-          mostrarError("❌ Credenciales incorrectas.");
+          mostrarError(data.message || "No se pudo eliminar el estudiante.");
         }
       })
       .catch(err => {
-        console.error("Error de conexión:", err);
-        mostrarError("❌ Error al conectar con el servidor.");
+        console.error("Error al eliminar:", err);
+        mostrarError("No se pudo conectar con el servidor.");
       });
+    }
+  });
+}
+
+// BOTONES DE TABLA
+function conectarBotones(fila, est) {
+  fila.querySelector(".eliminar").addEventListener("click", () => {
+    eliminarEstudiante(est.matricula, fila);
+  });
+
+  fila.querySelector(".editar").addEventListener("click", () => {
+    document.getElementById("Matricula").value = est.matricula;
+    document.getElementById("Nombre").value = est.nombre;
+    document.getElementById("Apellido_Paterno").value = est.apellido_paterno;
+    document.getElementById("Apellido_Materno").value = est.apellido_materno;
+    document.getElementById("Carrera").value = est.carrera;
+    document.getElementById("Semestre").value = est.semestre;
+    document.getElementById("Grupo").value = est.grupo;
+    document.getElementById("Chat_ID_Telegram").value = est.chat_id_telegram || "";
+    document.getElementById("Matricula").disabled = true;
+
+    document.querySelectorAll("[data-editing='true']").forEach(f => {
+      f.removeAttribute("data-editing");
     });
 
-    document.getElementById("btnResetAlumnos").addEventListener("click", function() {
-      if (confirm("¿Seguro que deseas borrar TODAS las asistencias de alumnos?")) {
-        fetch("/api/reset-asistencias-alumnos", { method: "DELETE" })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              mostrarExito("✅ " + data.message);
-            } else {
-              mostrarError("❌ " + (data.message || "No se pudo completar la operación."));
-            }
-          })
-          .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
+    fila.dataset.editing = "true";
+    btnSubmitAlumno.textContent = "Guardar Cambios";
+  });
+}
+
+// GUARDAR / EDITAR
+formulario.addEventListener("submit", function(e) {
+  e.preventDefault();
+
+  const chatid = document.getElementById("Chat_ID_Telegram").value.trim();
+
+  if (chatid && !/^[0-9]+$/.test(chatid)) {
+    mostrarError("El Chat ID de Telegram debe contener solo números.");
+    return;
+  }
+
+  const datosAlumno = {
+    matricula: document.getElementById("Matricula").value.trim(),
+    nombre: document.getElementById("Nombre").value.trim(),
+    apellido_paterno: document.getElementById("Apellido_Paterno").value.trim(),
+    apellido_materno: document.getElementById("Apellido_Materno").value.trim(),
+    carrera: document.getElementById("Carrera").value.trim(),
+    semestre: document.getElementById("Semestre").value.trim(),
+    grupo: document.getElementById("Grupo").value.trim(),
+    chat_id_telegram: document.getElementById("Chat_ID_Telegram").value.trim()
+  };
+
+  const filaEditando = tabla.querySelector("[data-editing='true']");
+
+  if (filaEditando) {
+    fetch("/api/actualizar_estudiante", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datosAlumno)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        resetModoEdicionAlumno();
+        cargarEstudiantes();
+        mostrarExito("Estudiante actualizado correctamente.");
+      } else {
+        mostrarError(data.message || "No se pudo actualizar el estudiante.");
       }
+    })
+    .catch(err => {
+      console.error("Error al actualizar:", err);
+      mostrarError("No se pudo conectar con el servidor.");
     });
 
-    document.getElementById("btnResetPersonal").addEventListener("click", function() {
-      if (confirm("¿Seguro que deseas borrar TODAS las asistencias de personal?")) {
-        fetch("/api/reset-asistencias-personal", { method: "DELETE" })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              mostrarExito("✅ " + data.message);
-            } else {
-              mostrarError("❌ " + (data.message || "No se pudo completar la operación."));
-            }
-          })
-          .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
+  } else {
+    fetch("/api/agregar_estudiante", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datosAlumno)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        resetModoEdicionAlumno();
+        cargarEstudiantes();
+        mostrarExito("Estudiante guardado con éxito.");
+      } else {
+        mostrarError(data.message || "No se pudo agregar el estudiante.");
       }
+    })
+    .catch(err => {
+      console.error("Error al agregar:", err);
+      mostrarError("No se pudo conectar con el servidor.");
     });
+  }
+});
 
-    document.getElementById("btnAvanzarGrados").addEventListener("click", function() {
-      if (confirm("¿Seguro que quieres avanzar TODOS los grados (1→2, 2→3... hasta 6)?")) {
-        fetch("/api/avanzar-grados", { method: "POST" })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              mostrarExito("✅ " + data.message);
-              cargarEstudiantes();
-            } else {
-              mostrarError("❌ " + (data.message || "No se pudo completar la operación."));
-            }
-          })
-          .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
-      }
-    });
-
-    document.getElementById("btnConfirmarGrado").addEventListener("click", function() {
-      const gradoActual = document.getElementById("gradoActual").value;
-      const gradoNuevo = document.getElementById("gradoNuevo").value;
-
-      if (gradoActual && gradoNuevo) {
-        fetch("/api/actualizar-grado", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grado_actual: gradoActual, grado_nuevo: gradoNuevo })
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            mostrarExito("✅ " + data.message);
-            cargarEstudiantes();
-            bootstrap.Modal.getInstance(document.getElementById("gradoModal")).hide();
-          } else {
-            mostrarError("❌ " + (data.message || "No se pudo actualizar el grado."));
-          }
-        })
-        .catch(err => mostrarError("❌ Error al conectar con el servidor: " + err));
-      }
-    });
-
-    document.getElementById("btnSincronizarTelegram").addEventListener("click", function () {
-      fetch("/api/sincronizar-chat-ids")
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            mostrarExito(`✅ Chat ID sincronizados correctamente. Actualizados: ${data.actualizados}`);
-            cargarEstudiantes();
-          } else {
-            mostrarError("❌ No se pudo sincronizar Telegram.");
-          }
-        })
-        .catch(err => {
-          console.error("Error al sincronizar Telegram:", err);
-          mostrarError("❌ Error al conectar con Telegram.");
+// CARGAR TABLA
+function cargarEstudiantes() {
+  fetch("/api/listar_estudiantes")
+    .then(res => res.json())
+    .then(data => {
+      tabla.innerHTML = "";
+      if (data.success) {
+        data.estudiantes.forEach(est => {
+          const fila = document.createElement("tr");
+          fila.innerHTML = `
+            <td>${est.matricula}</td>
+            <td>${est.nombre}</td>
+            <td>${est.apellido_paterno}</td>
+            <td>${est.apellido_materno}</td>
+            <td>${est.carrera}</td>
+            <td>${est.semestre}</td>
+            <td>${est.grupo}</td>
+            <td>
+              <button type="button" class="btn btn-info btn-sm editar"><i class="fa-solid fa-pen"></i></button>
+              <button type="button" class="btn btn-danger btn-sm eliminar"><i class="fa-solid fa-trash"></i></button>
+            </td>
+            <td>
+              <button type="button" class="btn btn-sm btn-primary ver-qr" data-clave="${est.matricula}">Ver QR</button>
+            </td>
+          `;
+          conectarBotones(fila, est);
+          tabla.appendChild(fila);
         });
+      } else {
+        mostrarError(data.message || "No se pudo cargar la lista de estudiantes.");
+      }
+    })
+    .catch(error => {
+      console.error("Error al cargar estudiantes:", error);
+      mostrarError("No se pudo cargar la lista de estudiantes.");
     });
-  </script>
+}
+
+// QR
+document.addEventListener("click", function(e) {
+  const botonQR = e.target.closest(".ver-qr");
+  if (botonQR) {
+    const clave = botonQR.getAttribute("data-clave");
+    document.getElementById("qrImage").src = `/api/qr/${clave}`;
+    document.getElementById("qrDownload").href = `/api/qr/${clave}?download=1`;
+
+    const modal = new bootstrap.Modal(document.getElementById("qrModal"));
+    modal.show();
+  }
+});
+
+// SUBIR EXCEL
+document.getElementById("formExcel").addEventListener("submit", function(e) {
+  e.preventDefault();
+
+  const formData = new FormData(this);
+  const progressContainer = document.getElementById("progressContainer");
+  const progressBar = document.getElementById("progressBar");
+  const resultado = document.getElementById("resultadoCargaExcel");
+  const tablaErroresContainer = document.getElementById("tablaErroresContainer");
+  const tablaErroresExcel = document.getElementById("tablaErroresExcel");
+
+  progressContainer.classList.remove("d-none");
+  resultado.classList.add("d-none");
+  tablaErroresContainer.classList.add("d-none");
+  tablaErroresExcel.innerHTML = "";
+  resultado.textContent = "";
+  progressBar.style.width = "0%";
+  progressBar.textContent = "0%";
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/cargar-estudiantes-excel", true);
+
+  xhr.upload.addEventListener("progress", function(e) {
+    if (e.lengthComputable) {
+      const porcentaje = Math.round((e.loaded / e.total) * 100);
+      progressBar.style.width = porcentaje + "%";
+      progressBar.textContent = porcentaje + "%";
+    }
+  });
+
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      const data = JSON.parse(xhr.responseText);
+
+      if (data.success) {
+        progressBar.style.width = "100%";
+        progressBar.textContent = "100%";
+
+        resultado.classList.remove("d-none");
+        resultado.className = "alert alert-success mt-3";
+        resultado.innerHTML = `
+          Insertados: <strong>${data.insertados}</strong><br>
+          Actualizados: <strong>${data.actualizados}</strong><br>
+          Errores: <strong>${data.errores.length}</strong><br>
+          Total procesados: <strong>${data.total}</strong>
+        `;
+
+        if (data.errores && data.errores.length > 0) {
+          tablaErroresContainer.classList.remove("d-none");
+
+          data.errores.forEach(err => {
+            const fila = document.createElement("tr");
+            fila.innerHTML = `
+              <td>${err.matricula || "-"}</td>
+              <td>${err.error || "Error desconocido"}</td>
+            `;
+            tablaErroresExcel.appendChild(fila);
+          });
+        }
+
+        cargarEstudiantes();
+
+        setTimeout(() => {
+          bootstrap.Modal.getInstance(document.getElementById("excelModal")).hide();
+          document.getElementById("formExcel").reset();
+          progressContainer.classList.add("d-none");
+          resultado.classList.add("d-none");
+          tablaErroresContainer.classList.add("d-none");
+          tablaErroresExcel.innerHTML = "";
+          progressBar.style.width = "0%";
+          progressBar.textContent = "0%";
+        }, 3500);
+      } else {
+        resultado.classList.remove("d-none");
+        resultado.className = "alert alert-danger mt-3";
+        resultado.textContent = "Error: " + data.message;
+      }
+    } else {
+      resultado.classList.remove("d-none");
+      resultado.className = "alert alert-danger mt-3";
+      resultado.textContent = "Error al subir el archivo.";
+    }
+  };
+
+  xhr.onerror = function() {
+    resultado.classList.remove("d-none");
+    resultado.className = "alert alert-danger mt-3";
+    resultado.textContent = "No se pudo conectar con el servidor.";
+  };
+
+  xhr.send(formData);
+});
+
+// VALIDAR MASTER
+document.getElementById("formMasterLogin").addEventListener("submit", function(e) {
+  e.preventDefault();
+  const usuario = document.getElementById("masterUser").value.trim();
+  const contraseña = document.getElementById("masterPass").value.trim();
+
+  fetch("/api/validar-master", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuario, contraseña })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      bootstrap.Modal.getInstance(document.getElementById("masterLoginModal")).hide();
+      new bootstrap.Modal(document.getElementById("resetModal")).show();
+    } else {
+      mostrarError("Credenciales incorrectas.");
+    }
+  })
+  .catch(err => {
+    console.error("Error de conexión:", err);
+    mostrarError("Error al conectar con el servidor.");
+  });
+});
+
+// BOTONES DEL MASTER CON SWEETALERT
+document.getElementById("btnResetAlumnos").addEventListener("click", function() {
+  confirmarAccion(
+    "¿Borrar asistencias de alumnos?",
+    "Se eliminarán todas las asistencias de alumnos",
+    () => {
+      fetch("/api/reset-asistencias-alumnos", { method: "DELETE" })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            mostrarExito(data.message);
+          } else {
+            mostrarError(data.message || "No se pudo completar la operación.");
+          }
+        })
+        .catch(err => mostrarError("Error al conectar con el servidor: " + err));
+    }
+  );
+});
+
+document.getElementById("btnResetPersonal").addEventListener("click", function() {
+  confirmarAccion(
+    "¿Borrar asistencias de personal?",
+    "Se eliminarán todas las asistencias de personal",
+    () => {
+      fetch("/api/reset-asistencias-personal", { method: "DELETE" })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            mostrarExito(data.message);
+          } else {
+            mostrarError(data.message || "No se pudo completar la operación.");
+          }
+        })
+        .catch(err => mostrarError("Error al conectar con el servidor: " + err));
+    }
+  );
+});
+
+document.getElementById("btnAvanzarGrados").addEventListener("click", function() {
+  confirmarAccion(
+    "¿Avanzar ciclo escolar?",
+    "Se avanzarán todos los grados del 1° al 6°",
+    () => {
+      fetch("/api/avanzar-grados", { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            mostrarExito(data.message);
+            cargarEstudiantes();
+          } else {
+            mostrarError(data.message || "No se pudo completar la operación.");
+          }
+        })
+        .catch(err => mostrarError("Error al conectar con el servidor: " + err));
+    }
+  );
+});
+
+document.getElementById("btnConfirmarGrado").addEventListener("click", function() {
+  const gradoActual = document.getElementById("gradoActual").value;
+  const gradoNuevo = document.getElementById("gradoNuevo").value;
+
+  if (gradoActual && gradoNuevo) {
+    fetch("/api/actualizar-grado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grado_actual: gradoActual, grado_nuevo: gradoNuevo })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        mostrarExito(data.message);
+        cargarEstudiantes();
+        bootstrap.Modal.getInstance(document.getElementById("gradoModal")).hide();
+      } else {
+        mostrarError(data.message || "No se pudo actualizar el grado.");
+      }
+    })
+    .catch(err => mostrarError("Error al conectar con el servidor: " + err));
+  }
+});
+
+document.getElementById("btnSincronizarTelegram").addEventListener("click", function () {
+  fetch("/api/sincronizar-chat-ids")
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        mostrarExito(`Chat ID sincronizados correctamente. Actualizados: ${data.actualizados}`);
+        cargarEstudiantes();
+      } else {
+        mostrarError("No se pudo sincronizar Telegram.");
+      }
+    })
+    .catch(err => {
+      console.error("Error al sincronizar Telegram:", err);
+      mostrarError("Error al conectar con Telegram.");
+    });
+});
+
+window.onload = cargarEstudiantes;
+</script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 </body>
