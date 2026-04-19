@@ -1,0 +1,46 @@
+ body, html {
+      margin: 0;
+      padding: 0;
+    }
+    .Titulo {
+  text-align: center;
+  margin: 0 auto;
+  color: rgb(250, 240, 255);
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+    #titulo2, #titulo2 h2 {
+      background-color: rgb(91, 13, 13);
+      color: rgb(255, 255, 255);
+      margin-bottom: 0;
+      padding: 10px;
+    }
+
+    .acciones {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 20px;
+    }
+
+    .acciones .btn {
+      margin-right: 10px;
+    }
+
+    .tabla-reporte {
+      margin: 0 20px;
+    }
+
+    table {
+      width: 100%;
+    }
+
+    th {
+      background-color: rgb(171, 15, 57);
+      color: white;
+    }
+
+    .volver-btn {
+      margin-left: auto;
+    }

@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, redirect,send_file
 from flask_cors import CORS 
+from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 import pandas as pd
 import io
@@ -12,6 +13,11 @@ import threading
 import time
 import os
 import sys
+import zipfile
+import unicodedata
+import re
+from flask import send_file, request, jsonify
+
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
@@ -910,6 +916,181 @@ def generar_pdf_tabla(titulo, encabezados, filas):
     buffer.seek(0)
     return buffer
 
+def limpiar_nombre_archivo(texto):
+    texto = str(texto).strip()
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    texto = texto.replace(" ", "_")
+    texto = re.sub(r"[^A-Za-z0-9_\-]", "", texto)
+    return texto
+
+@app.route("/api/descargar_qr_grupo", methods=["GET"])
+def descargar_qr_grupo():
+    semestre = str(request.args.get("semestre", "")).strip()
+    grupo = str(request.args.get("grupo", "")).strip().upper()
+
+    if not semestre or not grupo:
+        return jsonify({
+            "success": False,
+            "message": "Debes indicar semestre y grupo."
+        }), 400
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT matricula, nombre, apellido_paterno, apellido_materno, carrera
+            FROM estudiantes
+            WHERE semestre = %s AND grupo = %s
+            ORDER BY apellido_paterno, apellido_materno, nombre
+        """, (semestre, grupo))
+
+        alumnos = cur.fetchall()
+
+        if not alumnos:
+            return jsonify({
+                "success": False,
+                "message": f"No se encontraron alumnos de {semestre}° {grupo}."
+            }), 404
+
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for alumno in alumnos:
+                matricula, nombre, ap_p, ap_m, carrera = alumno
+
+                contenido = str(matricula).strip()
+
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=7,
+                    border=3
+                )
+                qr.add_data(contenido)
+                qr.make(fit=True)
+
+                img = qr.make_image(fill_color="black", back_color="white")
+
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format="PNG")
+                img_buffer.seek(0)
+
+                nombre_archivo = (
+                    f"QR_{limpiar_nombre_archivo(matricula)}_"
+                    f"{limpiar_nombre_archivo(nombre)}_"
+                    f"{limpiar_nombre_archivo(ap_p)}_"
+                    f"{limpiar_nombre_archivo(ap_m)}_"
+                    f"{limpiar_nombre_archivo(carrera)}.png"
+                )
+
+                zip_file.writestr(nombre_archivo, img_buffer.getvalue())
+
+        zip_buffer.seek(0)
+
+        return send_file(
+            zip_buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"QR_Grupo_{semestre}{grupo}.zip"
+        )
+
+    except Exception as e:
+        print("Error al descargar QR por grupo:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al generar el archivo ZIP."
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route('/api/eliminar_sexto_semestre', methods=['DELETE'])
+def eliminar_sexto_semestre():
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        # 🔥 Contar alumnos de 6° semestre
+        cur.execute("""
+            SELECT COUNT(*) FROM estudiantes WHERE semestre = '6'
+        """)
+        total = cur.fetchone()[0]
+
+        if total == 0:
+            return jsonify({
+                "success": False,
+                "message": "No hay alumnos de 6° semestre para eliminar."
+            }), 404
+
+        # 🔥 Obtener matrículas
+        cur.execute("""
+            SELECT matricula FROM estudiantes WHERE semestre = '6'
+        """)
+        alumnos = cur.fetchall()
+        matriculas = [a[0] for a in alumnos]
+
+        # 🔥 Eliminar asistencias
+        cur.execute("""
+            DELETE FROM asistencias
+            WHERE matricula = ANY(%s)
+        """, (matriculas,))
+
+        # 🔥 Eliminar alumnos
+        cur.execute("""
+            DELETE FROM estudiantes WHERE semestre = '6'
+        """)
+
+        eliminados = cur.rowcount
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Se eliminaron {eliminados} alumnos de 6° semestre.",
+            "total": total
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al eliminar 6°:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al eliminar alumnos."
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route('/api/contar_sexto_semestre', methods=['GET'])
+def contar_sexto_semestre():
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT COUNT(*) FROM estudiantes WHERE semestre = '6'
+        """)
+        total = cur.fetchone()[0]
+
+        return jsonify({
+            "success": True,
+            "total": total
+        })
+
+    except Exception as e:
+        print("Error contando alumnos:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al contar alumnos."
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
 def login_requerido(f):
     @wraps(f)
     def decorada(*args, **kwargs):
@@ -1235,11 +1416,10 @@ def ciclo_telegram():
         time.sleep(5)  # revisa cada 5 segundos
 
 def encriptar_contrasena(contraseña):
-    return bcrypt.hashpw(contraseña.encode('utf-8'), 
-    bcrypt.gensalt()).decode('utf-8')
+    return generate_password_hash(contraseña)
+
 def verificar_contrasena(contrasena_ingresada, hash_guardada):
-    return bcrypt.checkpw(contrasena_ingresada.encode('utf-8'), 
-    hash_guardada.encode('utf-8'))
+    return check_password_hash(hash_guardada, contrasena_ingresada)
 
 
 @app.route("/api/modificar-reporte")
@@ -1574,23 +1754,26 @@ def vista_agregar_estudiante():
 def agregar_estudiante():
     data = request.get_json()
 
-    matricula = data.get("matricula")
-    nombre = data.get("nombre")
-    apellido_paterno = data.get("apellido_paterno")
-    apellido_materno = data.get("apellido_materno")
-    carrera = data.get("carrera")
-    semestre = data.get("semestre")
-    grupo = data.get("grupo")
+    matricula = str(data.get("matricula", "")).strip()
+    nombre = str(data.get("nombre", "")).strip()
+    apellido_paterno = str(data.get("apellido_paterno", "")).strip()
+    apellido_materno = str(data.get("apellido_materno", "")).strip()
+    carrera = str(data.get("carrera", "")).strip()
+    semestre = str(data.get("semestre", "")).strip()
+    grupo = str(data.get("grupo", "")).strip().upper()
     chat_id_telegram = data.get("chat_id_telegram")
 
     if chat_id_telegram == "":
         chat_id_telegram = None
 
-    if chat_id_telegram is not None and not str(chat_id_telegram).isdigit():
-        return jsonify({"success": False, "message": "El Chat ID de Telegram debe contener solo números"}), 400
+    if chat_id_telegram is not None:
+        chat_id_telegram = str(chat_id_telegram).strip()
+        if not chat_id_telegram.isdigit():
+            return jsonify({"success": False, "message": "El Chat ID de Telegram debe contener solo números"}), 400
 
     if not all([matricula, nombre, apellido_paterno, apellido_materno, carrera, semestre, grupo]):
         return jsonify({"success": False, "message": "Faltan datos obligatorios"}), 400
+
     conn = conectar_bd()
     cur = conn.cursor()
 
@@ -1618,19 +1801,33 @@ def agregar_estudiante():
         cur.close()
         conn.close()
 
+
 @app.route('/api/actualizar_estudiante', methods=['PUT'])
 def actualizar_estudiante():
     data = request.get_json() or {}
-    matricula = data.get("matricula")
+
+    matricula = str(data.get("matricula", "")).strip()
+    nombre = str(data.get("nombre", "")).strip()
+    apellido_paterno = str(data.get("apellido_paterno", "")).strip()
+    apellido_materno = str(data.get("apellido_materno", "")).strip()
+    carrera = str(data.get("carrera", "")).strip()
+    semestre = str(data.get("semestre", "")).strip()
+    grupo = str(data.get("grupo", "")).strip().upper()
+    chat_id_telegram = data.get("chat_id_telegram")
 
     if not matricula:
         return jsonify({"success": False, "message": "Falta la matrícula"}), 400
 
-    chat_id_telegram = data.get("chat_id_telegram")
     if chat_id_telegram == "":
         chat_id_telegram = None
-    if chat_id_telegram is not None and not str(chat_id_telegram).isdigit():
-        return jsonify({"success": False, "message": "El Chat ID de Telegram debe contener solo números"}), 400
+
+    if chat_id_telegram is not None:
+        chat_id_telegram = str(chat_id_telegram).strip()
+        if not chat_id_telegram.isdigit():
+            return jsonify({"success": False, "message": "El Chat ID de Telegram debe contener solo números"}), 400
+
+    if not all([nombre, apellido_paterno, apellido_materno, carrera, semestre, grupo]):
+        return jsonify({"success": False, "message": "Faltan datos obligatorios"}), 400
 
     conn = conectar_bd()
     cur = conn.cursor()
@@ -1647,12 +1844,12 @@ def actualizar_estudiante():
                 chat_id_telegram=%s
             WHERE matricula=%s
         """, (
-            data.get("nombre"),
-            data.get("apellido_paterno"),
-            data.get("apellido_materno"),
-            data.get("carrera"),
-            data.get("semestre"),
-            data.get("grupo"),
+            nombre,
+            apellido_paterno,
+            apellido_materno,
+            carrera,
+            semestre,
+            grupo,
             chat_id_telegram,
             matricula
         ))
@@ -1689,18 +1886,21 @@ def login():
 
     try:
         cur.execute("""
-            SELECT id, nombre, apellido_paterno, apellido_materno, rol, es_maestro, contraseña
+            SELECT id, nombre, apellido_paterno, apellido_materno, rol, es_maestro, "contraseña"
             FROM usuarios
             WHERE usuario = %s
         """, (usuario,))
 
         resultado = cur.fetchone()
 
-        if resultado and verificar_contrasena(contraseña, resultado[6]):
+        if resultado and check_password_hash(resultado[6], contraseña):
             session["usuario_autenticado"] = True
             session["usuario"] = usuario
             session["rol"] = resultado[4]
             session["es_maestro"] = resultado[5]
+            session["nombre"] = resultado[1]
+            session["apellido_paterno"] = resultado[2]
+            session["apellido_materno"] = resultado[3]
 
             return jsonify({
                 "success": True,
@@ -1982,10 +2182,10 @@ def registrar_usuario():
     cur = conn.cursor()
 
     try:
-        contraseña_encriptada = encriptar_contrasena(contraseña)
+        contraseña_encriptada = generate_password_hash(contraseña)
 
         cur.execute("""
-            INSERT INTO usuarios (nombre, apellido_paterno, apellido_materno, usuario, contraseña, rol, es_maestro)
+            INSERT INTO usuarios (nombre, apellido_paterno, apellido_materno, usuario, "contraseña", rol, es_maestro)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             nombre,
@@ -2021,6 +2221,7 @@ def listar_personal():
     try:
         cur.execute("SELECT clave, nombre, apellido_paterno, apellido_materno, puesto FROM personal")
         rows = cur.fetchall()
+        
         personal = []
         for r in rows:
             personal.append({
@@ -2605,7 +2806,7 @@ def restablecer_contrasena():
                 "message": "El usuario a restablecer no existe"
             }), 404
 
-        nueva_hash = encriptar_contrasena(nueva_password)
+        nueva_hash = generate_password_hash(nueva_password)
 
         cur.execute("""
             UPDATE usuarios
@@ -2667,7 +2868,7 @@ def cambiar_contrasena():
                 "message": "Usuario o contraseña actual incorrectos"
             }), 401
 
-        nueva_hash = encriptar_contrasena(nueva)
+        nueva_hash = generate_password_hash(nueva)
 
         cur.execute("""
             UPDATE usuarios
@@ -3680,13 +3881,47 @@ def generar_qr(codigo):
     from flask import request, send_file
     from qrcode.constants import ERROR_CORRECT_L
 
-    # 🔥 SOLO el código, NO URL
     contenido = str(codigo).strip()
 
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        # 🔥 Buscar datos del alumno
+        cur.execute("""
+            SELECT nombre, apellido_paterno, apellido_materno, carrera
+            FROM estudiantes
+            WHERE matricula = %s
+        """, (codigo,))
+
+        alumno = cur.fetchone()
+
+        # Si existe en BD
+        if alumno:
+            nombre, ap_p, ap_m, carrera = alumno
+
+            # 🔥 Limpiar texto (quitar espacios raros)
+            nombre_archivo = f"{codigo}_{nombre}_{ap_p}_{ap_m}_{carrera}"
+
+            # 🔥 quitar espacios y caracteres raros
+            nombre_archivo = nombre_archivo.replace(" ", "_").replace("ñ", "n").replace("Ñ", "N")
+
+        else:
+            nombre_archivo = f"{codigo}"
+
+    except Exception as e:
+        print("Error obteniendo datos del alumno:", e)
+        nombre_archivo = f"{codigo}"
+
+    finally:
+        cur.close()
+        conn.close()
+
+    # 🔥 Generar QR
     qr = qrcode.QRCode(
-        version=1,  # QR pequeño
-        error_correction=ERROR_CORRECT_L,  # más rápido de leer
-        box_size=7,  # tamaño moderado (puedes probar 6-8)
+        version=1,
+        error_correction=ERROR_CORRECT_L,
+        box_size=7,
         border=3
     )
 
@@ -3699,16 +3934,17 @@ def generar_qr(codigo):
     img.save(buf, format="PNG")
     buf.seek(0)
 
-    # Descargar
+    # 🔥 DESCARGA CON NOMBRE PRO
     if request.args.get("download") == "1":
         return send_file(
             buf,
             mimetype="image/png",
             as_attachment=True,
-            download_name=f"qr_{codigo}.png"
+            download_name=f"QR_{nombre_archivo}.png"
         )
     else:
         return send_file(buf, mimetype="image/png")
+    
 @app.route("/api/cargar-estudiantes-excel", methods=["POST"])
 def cargar_estudiantes_excel():
     if "file" not in request.files:
@@ -3831,6 +4067,108 @@ def cargar_estudiantes_excel():
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Error procesando archivo: {str(e)}"}), 500
+
+@app.route('/api/actualizar-mi-cuenta', methods=['PUT'])
+@login_requerido
+def actualizar_mi_cuenta():
+    data = request.get_json() or {}
+
+    usuario_actual = session.get("usuario")
+
+    nombre = data.get("nombre", "").strip()
+    apellido_paterno = data.get("apellido_paterno", "").strip()
+    apellido_materno = data.get("apellido_materno", "").strip()
+    nuevo_usuario = data.get("usuario", "").strip()
+    nueva_password = data.get("password", "").strip()
+
+    if not usuario_actual:
+        return jsonify({"success": False, "message": "Sesión no válida"}), 401
+
+    conn = conectar_bd()
+    cur = conn.cursor()
+
+    try:
+        if nuevo_usuario:
+            cur.execute("""
+                SELECT id
+                FROM usuarios
+                WHERE usuario = %s AND usuario <> %s
+            """, (nuevo_usuario, usuario_actual))
+            existe = cur.fetchone()
+
+            if existe:
+                return jsonify({
+                    "success": False,
+                    "message": "Ese nombre de usuario ya está en uso"
+                }), 409
+
+        campos = []
+        valores = []
+
+        if nombre:
+            campos.append("nombre = %s")
+            valores.append(nombre)
+
+        if apellido_paterno:
+            campos.append("apellido_paterno = %s")
+            valores.append(apellido_paterno)
+
+        if apellido_materno:
+            campos.append("apellido_materno = %s")
+            valores.append(apellido_materno)
+
+        if nuevo_usuario:
+            campos.append("usuario = %s")
+            valores.append(nuevo_usuario)
+
+        if nueva_password:
+            password_hash = generate_password_hash(nueva_password)
+            campos.append('"contraseña" = %s')
+            valores.append(password_hash)
+
+        if not campos:
+            return jsonify({
+                "success": False,
+                "message": "No se enviaron cambios"
+            }), 400
+
+        valores.append(usuario_actual)
+
+        query = f"""
+            UPDATE usuarios
+            SET {', '.join(campos)}
+            WHERE usuario = %s
+        """
+        cur.execute(query, valores)
+        conn.commit()
+
+        if nuevo_usuario:
+            session["usuario"] = nuevo_usuario
+
+        if nombre:
+            session["nombre"] = nombre
+        if apellido_paterno:
+            session["apellido_paterno"] = apellido_paterno
+        if apellido_materno:
+            session["apellido_materno"] = apellido_materno
+
+        return jsonify({
+            "success": True,
+            "message": "Cuenta actualizada correctamente"
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        print("Error al actualizar cuenta:", e)
+        return jsonify({
+            "success": False,
+            "message": "Error al actualizar la cuenta"
+        }), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route("/verificacion")
 def vista_verificacion():
     return render_template("verificación.html")
@@ -3850,14 +4188,14 @@ def cerrar_verificacion():
 # 🚀 Ejecutar la app
 import os
 
-if __name__ == '__main__':
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+# if __name__ == '__main__':
+    #if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     # Iniciar el ciclo de sincronización de Telegram en un hilo separado
-       threading.Thread(target=ciclo_telegram, daemon=True).start()
-    app.run(
-        host="0.0.0.0",
-        port=5000,
-        debug=True,
-        ssl_context=("cert.pem", "key.pem")
-    )
+      # threading.Thread(target=ciclo_telegram, daemon=True).start()
+   # app.run(
+       # host="0.0.0.0",
+       # port=5000,
+       # debug=True,
+       # ssl_context=("cert.pem", "key.pem")
+   # )
 
